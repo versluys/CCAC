@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS candidates (
   source TEXT NOT NULL,
   distance_mi_from_center REAL,
   parking_spaces_est INTEGER,
+  -- How many parking polygons were attributed, and whether the total is large
+  -- enough that the lot almost certainly belongs to a neighbouring mall or
+  -- school. A flagged lot never raises the capacity band.
+  parking_lots_counted INTEGER,
+  parking_shared_suspect INTEGER,
   updated_by TEXT, updated_at TEXT
 );
 

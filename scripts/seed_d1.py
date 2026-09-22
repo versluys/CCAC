@@ -98,11 +98,13 @@ def main() -> int:
     lines += ["", "-- Candidates: refresh discovered geometry, preserve human research."]
     for c in ch.get("candidates", []):
         cols = ["id", "name", "denomination", "address", "lat", "lon", "website", "phone",
-                "footprint_ft2", "parking_m2", "parking_spaces_est", "capacity_est",
+                "footprint_ft2", "parking_m2", "parking_spaces_est", "parking_lots_counted",
+                "parking_shared_suspect", "capacity_est",
                 "distance_mi_from_center", "source", "updated_by", "updated_at"]
         vals = [c.get("id"), c.get("name"), c.get("denomination"), c.get("address"),
                 c.get("lat"), c.get("lon"), c.get("website"), c.get("phone"),
                 c.get("footprint_ft2"), c.get("parking_m2"), c.get("parking_spaces_est"),
+                c.get("parking_lots_counted"), c.get("parking_shared_suspect"),
                 c.get("capacity_est") or "unknown", c.get("distance_mi_from_center"),
                 c.get("source") or "osm", "pipeline", now]
         lines.append(
@@ -117,6 +119,8 @@ def main() -> int:
             "    footprint_ft2 = excluded.footprint_ft2,\n"
             "    parking_m2 = excluded.parking_m2,\n"
             "    parking_spaces_est = excluded.parking_spaces_est,\n"
+            "    parking_lots_counted = excluded.parking_lots_counted,\n"
+            "    parking_shared_suspect = excluded.parking_shared_suspect,\n"
             "    distance_mi_from_center = excluded.distance_mi_from_center,\n"
             "    -- a confirmed seat count always outranks the estimated band\n"
             "    capacity_est = CASE WHEN candidates.capacity_confirmed IS NOT NULL\n"

@@ -305,14 +305,43 @@ def main() -> int:
               "\n  re-running this script will only retry the parking query.", file=sys.stderr)
         return 3
 
-    # --- parking lots, with their areas, for proximity summing -------------
-    lots = []
+    # --- parking lots, projected, with a spatial index ---------------------
+    #
+    # Attribution is by TRUE distance from the church to the lot's edge, not by
+    # the distance to the lot's centre. A shopping-centre lot can have its
+    # centre within 100 m of a church it does not belong to, and a large lot
+    # sharing a boundary with a church can have its centre 300 m away. Using
+    # the centre gets both cases wrong, in opposite directions, and every error
+    # lands straight in the capacity band.
+    from shapely.geometry import Point, Polygon
+    from shapely.strtree import STRtree
+
+    lot_polys: list[Polygon] = []
+    lot_areas: list[float] = []
     for el in parking.get("elements", []):
-        pt = element_point(el)
-        area = element_area_m2(el, transformer)
-        if pt and area > 0:
-            lots.append({"pt": pt, "area_m2": area})
-    print(f"\nParking polygons with geometry: {len(lots)}")
+        geom = el.get("geometry")
+        if el.get("type") == "way" and geom and len(geom) >= 4:
+            rings = [geom]
+        elif el.get("type") == "relation":
+            rings = [m["geometry"] for m in el.get("members", [])
+                     if m.get("role") in ("outer", "") and m.get("geometry")
+                     and len(m["geometry"]) >= 4]
+        else:
+            continue
+        for ring in rings:
+            try:
+                poly = Polygon([transformer.transform(c["lon"], c["lat"]) for c in ring])
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+                if poly.is_empty or poly.area <= 0:
+                    continue
+            except Exception:
+                continue
+            lot_polys.append(poly)
+            lot_areas.append(float(poly.area))
+
+    lot_index = STRtree(lot_polys) if lot_polys else None
+    print(f"\nParking polygons with usable geometry: {len(lot_polys)}")
 
     # --- churches ----------------------------------------------------------
     raw = churches.get("elements", [])
@@ -372,15 +401,30 @@ def main() -> int:
     out = []
     for c in candidates.values():
         c.pop("_geometry", None)
-        parking_m2 = sum(
-            lot["area_m2"] for lot in lots
-            if haversine_mi(c["lat"], c["lon"], lot["pt"][0], lot["pt"][1]) * 1609.344 <= PARKING_RADIUS_M
-        )
+        parking_m2 = 0.0
+        lots_counted = 0
+        if lot_index is not None:
+            cx, cy = transformer.transform(c["lon"], c["lat"])
+            here = Point(cx, cy)
+            # Query a generous box, then filter on real edge distance.
+            for idx in lot_index.query(here.buffer(PARKING_RADIUS_M)):
+                if here.distance(lot_polys[idx]) <= PARKING_RADIUS_M:
+                    parking_m2 += lot_areas[idx]
+                    lots_counted += 1
+        c["parking_lots_counted"] = lots_counted or None
         fp_ft2 = (c["footprint_m2"] / M2_PER_FT2) if c.get("footprint_m2") else None
         c["footprint_ft2"] = round(fp_ft2, 0) if fp_ft2 else None
         c["parking_m2"] = round(parking_m2, 0) if parking_m2 else None
         c["parking_spaces_est"] = int(parking_m2 // 30) if parking_m2 else None
-        c["capacity_est"] = capacity_band(c["footprint_ft2"], c["parking_m2"])
+        # A church does not own 40,000 m2 of asphalt. Past this, the lot almost
+        # certainly belongs to a mall or a school sharing the block, so the
+        # figure is flagged rather than fed to the capacity band as fact.
+        c["parking_shared_suspect"] = 1 if parking_m2 > 20000 else None
+        c["capacity_est"] = capacity_band(
+            c["footprint_ft2"],
+            # Do not let a suspected shopping-centre lot promote a candidate.
+            None if c.get("parking_shared_suspect") else c["parking_m2"],
+        )
         c["distance_mi_from_center"] = round(haversine_mi(c["lat"], c["lon"], center[0], center[1]), 2)
         c["lat"], c["lon"] = round_coord(c["lat"]), round_coord(c["lon"])
         c.pop("footprint_m2", None)
@@ -437,6 +481,10 @@ def main() -> int:
         ["capacity_est", "candidates"],
     )
     print(f"Deduplicated {dropped} node(s) that sat inside a church building polygon.")
+    suspect = len([c for c in out if c.get("parking_shared_suspect")])
+    if suspect:
+        print(f"Flagged {suspect} candidate(s) whose adjacent parking exceeds 20,000 m2 — "
+              f"almost certainly a shared mall or school lot, so it does not raise their band.")
     with_fp = len([c for c in out if c.get('footprint_ft2')])
     print(f"Candidates with a building footprint: {with_fp} of {len(out)} "
           f"({with_fp/max(1,len(out))*100:.0f}%) — the rest are OSM coverage gaps, not small buildings.")
