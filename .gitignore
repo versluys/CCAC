@@ -1,7 +1,14 @@
 # --- Hard privacy boundary (PRD R-P1) -------------------------------------
 # Nothing under private/ is ever committed. It holds the donor .xlsx, the
-# geocoded CSV with street addresses, and the attender ZIP card entries.
-private/
+# geocoded CSV with street addresses, the attender ZIP card entries, and the
+# address overrides keyed on donor names.
+#
+# The contents are ignored, but the directory's README is tracked, so a fresh
+# clone actually has a private/ directory to put the workbook into. Ignoring
+# the directory itself means it does not exist after a clone, and every
+# instruction that begins "put the file in private/" fails.
+private/*
+!private/README.md
 *.xlsx
 *.xls
 households_geocoded.csv
