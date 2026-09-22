@@ -18,6 +18,7 @@ import argparse
 import csv
 import hashlib
 import io
+import pathlib
 import re
 import sys
 
@@ -161,6 +162,73 @@ def zip_place(zipcode: str | None) -> dict | None:
 # --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
+WORKBOOK_PATTERNS = ("*.xlsx", "*.xls", "*.xlsm")
+
+
+def resolve_workbook(given: str) -> pathlib.Path:
+    """Find the donor workbook, rather than insisting on one exact filename.
+
+    The default path is what the PRD names, but the file arrives from
+    QuickBooks with whatever name the export gave it. If the default is not
+    there, look for a single workbook in private/ and use it. Two workbooks is
+    ambiguous and worth stopping for; none is worth a clear message.
+    """
+    path = pathlib.Path(given)
+    if not path.is_absolute():
+        path = ROOT / path
+    if path.exists():
+        return path
+
+    found: list[pathlib.Path] = []
+    for pattern in WORKBOOK_PATTERNS:
+        # Excel leaves ~$lock files behind; they are not the workbook.
+        found += [p for p in PRIVATE.glob(pattern) if not p.name.startswith(("~$", "."))]
+    found = sorted(set(found))
+
+    if len(found) == 1:
+        print(f"Using the workbook found in private/: {found[0].name}")
+        return found[0]
+    if len(found) > 1:
+        names = "\n  ".join(p.name for p in found)
+        raise SystemExit(
+            f"! private/ holds more than one workbook, so which one to read is ambiguous:\n  {names}\n"
+            f"  Pass one explicitly:  --xlsx private/<name>"
+        )
+    raise SystemExit(
+        f"! no donor workbook found.\n"
+        f"  Looked for: {path}\n"
+        f"  and for {', '.join(WORKBOOK_PATTERNS)} in {PRIVATE}\n"
+        f"  Put the export in private/ (it is gitignored) or pass --xlsx <path>."
+    )
+
+
+def read_workbook(path: pathlib.Path, sheet, header_row: int):
+    """Read the workbook, naming the missing dependency when one is missing.
+
+    A legacy .xls needs xlrd rather than openpyxl, and pandas' own error for
+    that is easy to misread as the file being corrupt.
+    """
+    try:
+        return pd.read_excel(path, sheet_name=sheet, header=header_row)
+    except ImportError as exc:
+        engine = "xlrd" if path.suffix.lower() == ".xls" else "openpyxl"
+        raise SystemExit(
+            f"! reading {path.name} needs the '{engine}' package: {exc}\n"
+            f"  .venv/bin/pip install {engine}"
+        ) from exc
+    except ValueError as exc:
+        # Wrong sheet name is the common case and says so unhelpfully.
+        try:
+            sheets = pd.ExcelFile(path).sheet_names
+        except Exception:
+            raise SystemExit(f"! could not read {path.name}: {exc}") from exc
+        raise SystemExit(
+            f"! could not read sheet {sheet!r} from {path.name}: {exc}\n"
+            f"  Sheets present: {sheets}\n"
+            f"  Pass the right one with --sheet"
+        ) from exc
+
+
 def load_overrides(path) -> list[dict]:
     """Parish-confirmed address corrections.
 
@@ -224,15 +292,10 @@ def main() -> int:
 
     households: list[dict] = []
     total_rows = 0
-    xlsx = ROOT / args.xlsx if not args.xlsx.startswith("/") else args.xlsx
 
     # ---------------- donors ----------------
-    try:
-        df = pd.read_excel(xlsx, sheet_name=args.sheet, header=args.header_row)
-    except FileNotFoundError:
-        print(f"! donor workbook not found: {xlsx}", file=sys.stderr)
-        print("  Put it in private/ (gitignored) or pass --xlsx.", file=sys.stderr)
-        return 2
+    xlsx = resolve_workbook(args.xlsx)
+    df = read_workbook(xlsx, args.sheet, args.header_row)
 
     df.columns = [str(c).strip() for c in df.columns]
     bill_col = next((c for c in df.columns if c.lower().startswith("bill address")), None)
