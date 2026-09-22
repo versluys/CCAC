@@ -130,7 +130,11 @@ export async function listCandidates({ env, url }: RouteContext): Promise<Respon
   const { results } = await db.prepare(sql).bind(...binds).all<CandidateRow>();
   const decorated = await decorate(db, results);
   decorated.sort((a, b) => b.fit_score - a.fit_score);
-  return json({ count: decorated.length, candidates: decorated });
+  // The per-component reasons are only ever read in the drawer, which fetches
+  // a single candidate. Sending them for every row costs about a megabyte on
+  // a full county list, over a phone connection, for data nothing renders.
+  const list = decorated.map(({ score_breakdown: _drop, ...rest }) => rest);
+  return json({ count: list.length, candidates: list });
 }
 
 export async function getCandidate({ env, params }: RouteContext): Promise<Response> {

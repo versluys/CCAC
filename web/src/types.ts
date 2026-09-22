@@ -49,7 +49,8 @@ export interface Candidate {
   updated_by: string | null;
   updated_at: string | null;
   fit_score: number;
-  score_breakdown: ScoreComponent[];
+  /** Present on the detail route only; the list route omits it to save payload. */
+  score_breakdown?: ScoreComponent[];
   years_to_80pct: { conservative: number | null; base: number | null; surge: number | null };
   years_to_80pct_base: number | null;
   seats_basis: string;

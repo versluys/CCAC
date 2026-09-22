@@ -309,7 +309,7 @@ export default function Drawer({ id, onClose, onChanged, notify }: Props) {
 
         <section>
           <h3>Why this score</h3>
-          {c.score_breakdown.map((comp) => (
+          {(c.score_breakdown ?? []).map((comp) => (
             <div className="score-row" key={comp.label}>
               <span>{comp.label}</span>
               <span>{comp.points.toFixed(1)} / {comp.weight}</span>
