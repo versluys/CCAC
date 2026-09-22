@@ -22,6 +22,7 @@ OSM church coverage is incomplete and building polygons are often missing, so
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -152,30 +153,53 @@ def point_in_ring(pt: tuple[float, float], ring: list[dict]) -> bool:
 # --------------------------------------------------------------------------
 # fetching
 # --------------------------------------------------------------------------
-def overpass(query: str, session: requests.Session, limiter: RateLimiter, label: str) -> dict | None:
-    cache_key = CACHE / f"overpass_{abs(hash(query)) % (10**12)}.json"
+def overpass(query: str, session: requests.Session, limiter: RateLimiter, label: str,
+             rounds: int = 4) -> dict | None:
+    """Query Overpass, cache the answer, and survive a dropped connection.
+
+    The cache is keyed on a SHA-256 of the query text. Python's built-in hash()
+    is randomised per process, so keying on it would mean the cache never hit
+    across runs and every retry re-downloaded the whole county.
+
+    Each round tries every endpoint in turn, then backs off before the next
+    round. Overpass is a donated public service and a flaky client should wait
+    rather than hammer it.
+    """
+    digest = hashlib.sha256(query.encode()).hexdigest()[:16]
+    cache_key = CACHE / f"overpass_{digest}.json"
     cached = read_json(cache_key)
     if cached is not None:
         print(f"  {label}: cache hit ({len(cached.get('elements', []))} elements)")
         return cached
-    for endpoint in OVERPASS_ENDPOINTS:
-        limiter.wait()
-        print(f"  {label}: querying {endpoint} ...", flush=True)
-        try:
-            resp = session.post(endpoint, data={"data": query}, timeout=240,
-                                headers={"User-Agent": USER_AGENT})
-            if resp.status_code in (429, 504):
-                print(f"    rate-limited ({resp.status_code}); backing off 20 s")
-                time.sleep(20)
+
+    for attempt in range(rounds):
+        for endpoint in OVERPASS_ENDPOINTS:
+            limiter.wait()
+            print(f"  {label}: querying {endpoint}"
+                  f"{f' (round {attempt + 1} of {rounds})' if attempt else ''} ...", flush=True)
+            try:
+                resp = session.post(endpoint, data={"data": query}, timeout=240,
+                                    headers={"User-Agent": USER_AGENT})
+                if resp.status_code in (429, 504):
+                    print(f"    busy ({resp.status_code}); trying the next endpoint")
+                    continue
+                resp.raise_for_status()
+                payload = resp.json()
+            except (requests.RequestException, ValueError) as exc:
+                print(f"    ! {type(exc).__name__}: {exc}", file=sys.stderr)
                 continue
-            resp.raise_for_status()
-            payload = resp.json()
-        except (requests.RequestException, ValueError) as exc:
-            print(f"    ! {exc}", file=sys.stderr)
-            continue
-        write_json(cache_key, payload)
-        return payload
-    print(f"  ! {label}: every Overpass endpoint failed.", file=sys.stderr)
+            if not isinstance(payload.get("elements"), list):
+                print("    ! response had no element list; not caching it", file=sys.stderr)
+                continue
+            write_json(cache_key, payload)
+            print(f"  {label}: {len(payload['elements'])} elements (cached)")
+            return payload
+        if attempt < rounds - 1:
+            wait = 5 * 2 ** attempt
+            print(f"    all endpoints failed; waiting {wait}s before retrying", flush=True)
+            time.sleep(wait)
+
+    print(f"  ! {label}: every Overpass endpoint failed after {rounds} rounds.", file=sys.stderr)
     return None
 
 
@@ -271,7 +295,15 @@ def main() -> int:
     parking = overpass(
         PARKING_QUERY.format(radius=args.radius_m, lat=center[0], lon=center[1]),
         session, limiter, "parking",
-    ) or {"elements": []}
+    )
+    if parking is None:
+        # Without parking polygons every capacity band would read low, and a
+        # 'possible' building would be mislabelled 'unlikely'. A wrong band is
+        # worse than a missing file, so stop instead.
+        print("\n! Churches were fetched but parking was not. Capacity bands would be"
+              "\n  understated, so nothing was written. The church query is cached, so"
+              "\n  re-running this script will only retry the parking query.", file=sys.stderr)
+        return 3
 
     # --- parking lots, with their areas, for proximity summing -------------
     lots = []
