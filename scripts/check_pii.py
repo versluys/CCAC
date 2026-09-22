@@ -39,6 +39,11 @@ ALLOWED_ATTENDER_KEYS = {"id", "zip", "lat", "lon", "household_size", "joined_wi
 # data/zip_centroids.csv is published Census/USPS geography, not donor data.
 REFERENCE_FILES = {"zip_centroids.csv"}
 
+# private/README.md documents what belongs in private/ and is deliberately
+# tracked, so that a fresh clone has the directory to fill. It is the only
+# path under private/ that git may know about.
+TRACKED_PRIVATE_ALLOWED = {"private/README.md"}
+
 
 def donor_name_tokens() -> set[str]:
     """Surnames and given names from the private workbook, if it is present."""
@@ -119,6 +124,8 @@ def main() -> int:
         ).stdout.strip()
         if tracked:
             for line in tracked.splitlines():
+                if line.strip() in TRACKED_PRIVATE_ALLOWED:
+                    continue
                 findings.append(f"git tracks a private file: {line}")
     except OSError:
         pass
