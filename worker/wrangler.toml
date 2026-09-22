@@ -1,4 +1,10 @@
-name = "ccac-sitefinder"
+# Cair Paravel: the seat by the sea the four spend the whole story getting
+# back to. A parish looking for a permanent home could do worse for a name.
+# Deploys to cair-paravel.<your-account>.workers.dev; point a custom domain at
+# it whenever the vestry is ready.
+# Other Narnian options, if the committee prefers: lamp-post (the waypoint),
+# spare-oom (Lucy's name for the professor's spare room), or the-wardrobe.
+name = "cair-paravel"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
@@ -23,13 +29,28 @@ CF_ACCESS_AUD = "REPLACE_WITH_YOUR_ACCESS_APPLICATION_AUD_TAG"
 ALLOWED_EMAIL_DOMAINS = ""
 ENVIRONMENT = "production"
 
-# `wrangler dev` only. ACCESS_DEV_EMAIL is ignored unless ENVIRONMENT is
-# exactly "development", so it cannot open a door in production.
+# ---------------------------------------------------------------------------
+# Local development. A named wrangler environment does NOT inherit top-level
+# bindings, so the assets and D1 bindings are repeated here deliberately.
+#
+# ACCESS_DEV_EMAIL is ignored unless ENVIRONMENT is exactly "development", so
+# it cannot open a door in production. Never set ENVIRONMENT to "development"
+# on a deployed Worker.
+# ---------------------------------------------------------------------------
 [env.dev.vars]
 ENVIRONMENT = "development"
 ACCESS_DEV_EMAIL = "treasurer@example.org"
 CF_ACCESS_TEAM_DOMAIN = "example.cloudflareaccess.com"
 CF_ACCESS_AUD = "dev-not-verified"
+
+[env.dev.assets]
+directory = "../web/dist"
+binding = "ASSETS"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "ccac-sitefinder"
+database_id = "local-dev"
 
 [observability]
 enabled = true

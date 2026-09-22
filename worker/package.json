@@ -10,8 +10,8 @@
     "db:create": "wrangler d1 create ccac-sitefinder",
     "db:schema": "wrangler d1 execute ccac-sitefinder --file=schema.sql --remote",
     "db:seed": "wrangler d1 execute ccac-sitefinder --file=seed.sql --remote",
-    "db:schema:local": "wrangler d1 execute ccac-sitefinder --file=schema.sql --local",
-    "db:seed:local": "wrangler d1 execute ccac-sitefinder --file=seed.sql --local"
+    "db:schema:local": "wrangler d1 execute ccac-sitefinder --file=schema.sql --local --env dev",
+    "db:seed:local": "wrangler d1 execute ccac-sitefinder --file=seed.sql --local --env dev"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
