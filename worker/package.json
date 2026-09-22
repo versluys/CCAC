@@ -1,0 +1,22 @@
+{
+  "name": "ccac-sitefinder-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --env dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:create": "wrangler d1 create ccac-sitefinder",
+    "db:schema": "wrangler d1 execute ccac-sitefinder --file=schema.sql --remote",
+    "db:seed": "wrangler d1 execute ccac-sitefinder --file=seed.sql --remote",
+    "db:schema:local": "wrangler d1 execute ccac-sitefinder --file=schema.sql --local",
+    "db:seed:local": "wrangler d1 execute ccac-sitefinder --file=seed.sql --local"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8",
+    "wrangler": "^3.99.0"
+  }
+}

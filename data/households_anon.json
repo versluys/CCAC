@@ -1,0 +1,437 @@
+{
+  "generated_from": "donor bill addresses",
+  "source": "live",
+  "donor_rows_total": 73,
+  "households": [
+    {
+      "id": "hh:c560b553d3eb",
+      "lat": 33.883,
+      "lon": -117.527,
+      "zip": "92879",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:0c9053debac4",
+      "lat": 33.647,
+      "lon": -116.883,
+      "zip": "92544",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:d6b7050305ce",
+      "lat": 33.941,
+      "lon": -118.129,
+      "zip": "90241",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:037882349d98",
+      "lat": 34.065,
+      "lon": -118.085,
+      "zip": "91770",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:0500f34e6f33",
+      "lat": 34.012,
+      "lon": -117.16,
+      "zip": "92373",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:aa365545da35",
+      "lat": 34.012,
+      "lon": -117.16,
+      "zip": "92373",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:4c2cc7880799",
+      "lat": 33.883,
+      "lon": -117.442,
+      "zip": "92503",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:e64790e9ce80",
+      "lat": 33.971,
+      "lon": -117.325,
+      "zip": "92507",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:3a6c1a3614d7",
+      "lat": 33.891,
+      "lon": -117.327,
+      "zip": "92508",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:5726a2d899f5",
+      "lat": 33.659,
+      "lon": -117.174,
+      "zip": "92584",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:a84420dfdbc2",
+      "lat": 38.927,
+      "lon": -94.714,
+      "zip": "66210",
+      "in_state": 0,
+      "outlier": 1,
+      "match_quality": "zip-only-coarse",
+      "corrected": 0
+    },
+    {
+      "id": "hh:9934f8d844ab",
+      "lat": 33.883,
+      "lon": -117.442,
+      "zip": "92503",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:ea57c7778275",
+      "lat": 33.787,
+      "lon": -117.321,
+      "zip": "92570",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:4f92d5075811",
+      "lat": 33.903,
+      "lon": -117.398,
+      "zip": "92504",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:3235c02a473f",
+      "lat": 33.934,
+      "lon": -117.367,
+      "zip": "92506",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:abf5414ae81d",
+      "lat": 34.374,
+      "lon": -117.628,
+      "zip": "92397",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:9d764d31c399",
+      "lat": 32.538,
+      "lon": -94.406,
+      "zip": "75670",
+      "in_state": 0,
+      "outlier": 1,
+      "match_quality": "zip-only-coarse",
+      "corrected": 0
+    },
+    {
+      "id": "hh:e6911a8ce418",
+      "lat": 33.903,
+      "lon": -117.398,
+      "zip": "92504",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:bb94a8cfacf9",
+      "lat": 33.934,
+      "lon": -117.367,
+      "zip": "92506",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:f25b4b74703e",
+      "lat": 39.009,
+      "lon": -119.73,
+      "zip": "89423",
+      "in_state": 0,
+      "outlier": 1,
+      "match_quality": "zip-only-coarse",
+      "corrected": 0
+    },
+    {
+      "id": "hh:13e5e3d125d9",
+      "lat": 34.571,
+      "lon": -117.133,
+      "zip": "92307",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:1ad6d599797d",
+      "lat": 33.934,
+      "lon": -117.367,
+      "zip": "92506",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:0241a56316ac",
+      "lat": 34.003,
+      "lon": -117.442,
+      "zip": "92509",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:e21b874a4aa1",
+      "lat": 33.891,
+      "lon": -117.327,
+      "zip": "92508",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:6412b4a338c1",
+      "lat": 34.003,
+      "lon": -117.442,
+      "zip": "92509",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:671e75a568ef",
+      "lat": 34.086,
+      "lon": -117.465,
+      "zip": "92335",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:e5f1784d87d2",
+      "lat": 33.756,
+      "lon": -118.131,
+      "zip": "90803",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:47fc34fec29b",
+      "lat": 34.036,
+      "lon": -117.592,
+      "zip": "91761",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:8d85ad68b64e",
+      "lat": 33.829,
+      "lon": -117.205,
+      "zip": "92571",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:75ade0fbb292",
+      "lat": 33.934,
+      "lon": -117.367,
+      "zip": "92506",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:df7f2f2d5e19",
+      "lat": 33.995,
+      "lon": -117.373,
+      "zip": "92501",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:3f9a79a085b4",
+      "lat": 30.687,
+      "lon": -86.566,
+      "zip": "32578",
+      "in_state": 0,
+      "outlier": 1,
+      "match_quality": "zip-only-coarse",
+      "corrected": 0
+    },
+    {
+      "id": "hh:2aa22f12a3b3",
+      "lat": 33.254,
+      "lon": -117.003,
+      "zip": "92082",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:0db6575223cc",
+      "lat": 33.84,
+      "lon": -117.602,
+      "zip": "92882",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:11c3457e4153",
+      "lat": 35.393,
+      "lon": -119.12,
+      "zip": "93312",
+      "in_state": 1,
+      "outlier": 1,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:4fcbcd419213",
+      "lat": 34.127,
+      "lon": -117.183,
+      "zip": "92346",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:8a7ffecaa0f1",
+      "lat": 34.018,
+      "lon": -117.855,
+      "zip": "91789",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:994752d4a9eb",
+      "lat": 33.995,
+      "lon": -117.373,
+      "zip": "92501",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 1
+    },
+    {
+      "id": "hh:1229ddabaaff",
+      "lat": 33.948,
+      "lon": -116.988,
+      "zip": "92223",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:aacb10b8ef07",
+      "lat": 33.903,
+      "lon": -117.398,
+      "zip": "92504",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:6819566eb80f",
+      "lat": 34.101,
+      "lon": -117.579,
+      "zip": "91730",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:cf58c0be37b8",
+      "lat": 33.948,
+      "lon": -116.988,
+      "zip": "92223",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    },
+    {
+      "id": "hh:7e5ce0c70efb",
+      "lat": 34.012,
+      "lon": -117.16,
+      "zip": "92373",
+      "in_state": 1,
+      "outlier": 0,
+      "match_quality": "zip-only",
+      "corrected": 0
+    }
+  ]
+}

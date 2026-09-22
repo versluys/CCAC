@@ -1,0 +1,35 @@
+name = "ccac-sitefinder"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# The built React app. One Worker serves the UI and the API so that a single
+# Cloudflare Access application covers both (PRD §6).
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ccac-sitefinder"
+# Replace with the id printed by:  npx wrangler d1 create ccac-sitefinder
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+# Not secrets: these are public identifiers for the Access application, and
+# the Worker still verifies every token's signature against the team's JWKS.
+CF_ACCESS_TEAM_DOMAIN = "REPLACE_WITH_YOUR_TEAM.cloudflareaccess.com"
+CF_ACCESS_AUD = "REPLACE_WITH_YOUR_ACCESS_APPLICATION_AUD_TAG"
+ALLOWED_EMAIL_DOMAINS = ""
+ENVIRONMENT = "production"
+
+# `wrangler dev` only. ACCESS_DEV_EMAIL is ignored unless ENVIRONMENT is
+# exactly "development", so it cannot open a door in production.
+[env.dev.vars]
+ENVIRONMENT = "development"
+ACCESS_DEV_EMAIL = "treasurer@example.org"
+CF_ACCESS_TEAM_DOMAIN = "example.cloudflareaccess.com"
+CF_ACCESS_AUD = "dev-not-verified"
+
+[observability]
+enabled = true

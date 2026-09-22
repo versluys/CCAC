@@ -1,0 +1,27 @@
+# --- Hard privacy boundary (PRD R-P1) -------------------------------------
+# Nothing under private/ is ever committed. It holds the donor .xlsx, the
+# geocoded CSV with street addresses, and the attender ZIP card entries.
+private/
+*.xlsx
+*.xls
+households_geocoded.csv
+attender_zips.csv
+
+# --- Caches --------------------------------------------------------------
+.cache/
+scripts/.cache/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Node ----------------------------------------------------------------
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.log
+.DS_Store
+
+# generated
+worker/seed.sql

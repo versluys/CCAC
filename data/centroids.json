@@ -1,0 +1,74 @@
+{
+  "default_method": "geometric_median",
+  "drive_stats_source": "proxy",
+  "proxy_mph": 27.0,
+  "bands_min": [
+    10,
+    15,
+    20,
+    30
+  ],
+  "centroids": {
+    "mean_all": {
+      "lat": 33.981,
+      "lon": -117.442,
+      "view": "donors",
+      "n": 39,
+      "note": "Naive mean; pulled by every remaining outlier.",
+      "drive_stats": {
+        "within_10min": 0.1026,
+        "within_10min_count": 4,
+        "within_15min": 0.3077,
+        "within_15min_count": 12,
+        "within_20min": 0.4103,
+        "within_20min_count": 16,
+        "within_30min": 0.5385,
+        "within_30min_count": 21,
+        "mean_min": 43.64,
+        "median_min": 25.39
+      },
+      "drive_stats_source": "straight-line proxy"
+    },
+    "mean_trimmed": {
+      "lat": 33.944,
+      "lon": -117.398,
+      "view": "donors",
+      "n": 38,
+      "dropped": 1,
+      "note": "Mean after dropping 1 point(s) >60 mi from the median.",
+      "drive_stats": {
+        "within_10min": 0.2308,
+        "within_10min_count": 9,
+        "within_15min": 0.4103,
+        "within_15min_count": 16,
+        "within_20min": 0.4359,
+        "within_20min_count": 17,
+        "within_30min": 0.5128,
+        "within_30min_count": 20,
+        "mean_min": 41.93,
+        "median_min": 28.52
+      },
+      "drive_stats_source": "straight-line proxy"
+    },
+    "geometric_median": {
+      "lat": 33.934,
+      "lon": -117.367,
+      "view": "donors",
+      "n": 38,
+      "note": "Weiszfeld; minimises total straight-line distance. Robust to outliers.",
+      "drive_stats": {
+        "within_10min": 0.3077,
+        "within_10min_count": 12,
+        "within_15min": 0.4103,
+        "within_15min_count": 16,
+        "within_20min": 0.4103,
+        "within_20min_count": 16,
+        "within_30min": 0.5897,
+        "within_30min_count": 23,
+        "mean_min": 41.64,
+        "median_min": 26.46
+      },
+      "drive_stats_source": "straight-line proxy"
+    }
+  }
+}

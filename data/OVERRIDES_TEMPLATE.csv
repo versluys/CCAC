@@ -1,0 +1,6 @@
+match_name,override_zip,note
+# Copy to private/address_overrides.csv and fill in. Never commit the filled copy:
+# it keys on donor names, which are PII under R-P1.
+#   match_name   case-insensitive substring match against "Donor full name" or "Full name"
+#   override_zip 5-digit ZIP the household should actually be placed at
+#   note         why, and who confirmed it

@@ -1,0 +1,11 @@
+{
+  "center": null,
+  "radius_m": 32187,
+  "generated": "not-yet-run",
+  "coverage_caveat": "scripts/churches.py has not been run yet. It needs network access to overpass-api.de, which is unavailable from the build container. Run it locally.",
+  "capacity_thresholds": {
+    "footprint_likely_ft2": 6000.0,
+    "parking_likely_m2": 1500.0
+  },
+  "candidates": []
+}
