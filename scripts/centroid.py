@@ -229,7 +229,8 @@ def main() -> int:
         grid = candidate_grid(seed)
         print(f"Drive-time median: testing {len(grid)} candidate centres against {len(primary)} households ...")
         dests = [(p[0], p[1]) for p in primary]
-        best = None
+        best = None          # minimises total drive minutes
+        best_share = None    # maximises households within 20 minutes
         # OSRM's public demo caps table size; walk the grid in chunks.
         chunk = 25
         for start in range(0, len(grid), chunk):
@@ -242,20 +243,47 @@ def main() -> int:
                     break
                 cache[ck] = matrix
             for row, src in zip(matrix, srcs):
-                total = sum((m if m is not None else proxy_minutes(src, d)) * p[2]
-                            for m, d, p in zip(row, dests, primary))
+                mins = [
+                    (m if m is not None else proxy_minutes(src, d), p[2])
+                    for m, d, p in zip(row, dests, primary)
+                ]
+                total = sum(m * w for m, w in mins)
                 if best is None or total < best[0]:
                     best = (total, src, row)
+
+                # A second objective, because these are not the same question.
+                # Minimising total minutes trades a household at 22 minutes
+                # against one at 50, and the far household wins that trade
+                # every time. Maximising the share inside a 20-minute drive is
+                # what the scoring weights actually reward, and what a family
+                # deciding whether to come on a wet Sunday actually feels.
+                within = sum(w for m, w in mins if m <= 20.0)
+                if best_share is None or (within, -total) > (best_share[0], -best_share[3]):
+                    best_share = (within, src, row, total)
         if best:
             osrm_ok = True
             write_json(cache_path, cache)
+            view_name = "merged" if "merged" in views else "donors"
+            total_w = sum(p[2] for p in primary) or 1.0
             centroids["drive_time_median"] = {
                 "lat": best[1][0], "lon": best[1][1],
-                "meta": {"view": "merged" if "merged" in views else "donors",
+                "meta": {"view": view_name,
                          "n": len(primary),
                          "total_drive_min": round(best[0], 1),
-                         "note": "Minimises total drive minutes over a 2 km grid within 15 mi of the geometric median."},
+                         "note": "Minimises TOTAL drive minutes. A household 50 minutes out "
+                                 "pulls as hard as one at 20, so this is not the same as "
+                                 "serving the most families within a reasonable Sunday drive."},
             }
+            if best_share:
+                centroids["drive_time_max_share_20min"] = {
+                    "lat": best_share[1][0], "lon": best_share[1][1],
+                    "meta": {"view": view_name,
+                             "n": len(primary),
+                             "within_20min": round(best_share[0] / total_w, 4),
+                             "total_drive_min": round(best_share[3], 1),
+                             "note": "Maximises the share of households within a 20-minute drive. "
+                                     "This is the objective the scoring weights reward."},
+                }
 
     if not osrm_ok:
         print("  ! drive-time median unavailable (OSRM unreachable or disabled).")
@@ -263,9 +291,14 @@ def main() -> int:
         print("    Re-run this script from a machine that can reach router.project-osrm.org.")
 
     # ---------------- drive-band tables ----------------
-    default_method = "drive_time_median" if osrm_ok else (
-        "geometric_median" if "geometric_median" in centroids else "geometric_median_donors"
-    )
+    if osrm_ok and "drive_time_max_share_20min" in centroids:
+        # The committee is choosing where most families can reasonably get to
+        # on a Sunday, not where the summed odometer reading is lowest.
+        default_method = "drive_time_max_share_20min"
+    elif osrm_ok:
+        default_method = "drive_time_median"
+    else:
+        default_method = "geometric_median" if "geometric_median" in centroids else "geometric_median_donors"
     rows = []
     for name, c in centroids.items():
         pts = views.get(c["meta"]["view"]) or primary
