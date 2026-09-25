@@ -160,7 +160,8 @@ if [[ $SERVE -eq 1 ]]; then
     echo
     echo "The seed failed. The usual cause is a local database created before a" >&2
     echo "schema change, which CREATE TABLE IF NOT EXISTS cannot alter." >&2
-    echo "  scripts/run_pipeline.sh --keep-discovery --serve --reset-db" >&2
+    echo "Re-run with --reset-db, adding whatever flags you used:" >&2
+    echo "  scripts/run_pipeline.sh --examples --isochrones --serve --reset-db" >&2
     exit 1
   }
   echo

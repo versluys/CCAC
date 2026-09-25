@@ -366,8 +366,22 @@ def main() -> int:
         feats = compute_set(point, bands, args, session, limiter, cache, label, ors_key, tf)
         if feats:
             sets[key] = feats
-            print("    " + ", ".join(f"{f['properties']['minutes']}min:{f['properties']['cells']}"
-                                     for f in feats))
+            # Report the shape, not the cell count: a routing service returns
+            # polygons and no cells, and printing "cells:None" for every band
+            # reads as though nothing was computed.
+            parts = []
+            for f in feats:
+                ring = (f.get("geometry") or {}).get("coordinates") or []
+                verts = 0
+                stack = [ring]
+                while stack:
+                    node = stack.pop()
+                    if node and isinstance(node[0], (int, float)):
+                        verts += 1
+                    elif node:
+                        stack.extend(node)
+                parts.append(f"{f['properties']['minutes']}min:{verts}pts")
+            print("    " + ", ".join(parts))
         write_json(cache_path, cache)
 
     if not sets:

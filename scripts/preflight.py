@@ -203,9 +203,19 @@ def check_radius():
     except OSError:
         radius = None
     ch = read(DATA / "churches.json")
-    if not ch or not ch.get("candidates"):
-        pending("Church discovery", "churches.json holds no candidates",
-                ".venv/bin/python scripts/churches.py")
+    ex = read(DATA / "examples.json") or {}
+    discovered = len((ch or {}).get("candidates") or [])
+    examples = len(ex.get("candidates") or [])
+
+    if discovered == 0:
+        # The sweep is off by default and candidates are added by hand, so an
+        # empty churches.json is the normal configuration rather than a fault.
+        if examples:
+            ok("Candidate source", f"no sweep on file; {examples} example(s) present. "
+                                   f"Hand-entered candidates live in the database.")
+        else:
+            ok("Candidate source", "no sweep on file. Candidates are added in the "
+                                   "dashboard and live in the database; --discover runs the sweep.")
         return
     stored = ch.get("radius_m")
     if radius and stored and stored != radius:
@@ -214,7 +224,9 @@ def check_radius():
     else:
         mi = (stored or 0) / 1609.344
         ok("Search radius", f"{stored} m ({mi:.0f} mi), matches the code")
-    ok("Candidates discovered", f"{len(ch['candidates'])}, generated {age(DATA / 'churches.json')}")
+    ok("Candidates discovered", f"{discovered} from the sweep, generated "
+                                f"{age(DATA / 'churches.json')}"
+                                + (f"; {examples} example(s) too" if examples else ""))
 
 
 def check_order():
@@ -316,21 +328,25 @@ def check_examples():
 
 
 def check_seed():
-    seed = ROOT / "worker" / "seed.sql"
-    if not seed.exists():
-        pending("D1 seed", "worker/seed.sql missing",
-                ".venv/bin/python scripts/seed_d1.py > worker/seed.sql")
+    # The seed is a numbered sequence under worker/seed/, not a single file.
+    parts = sorted((ROOT / "worker" / "seed").glob("*.sql"))
+    if not parts:
+        pending("D1 seed", "no seed parts in worker/seed/",
+                ".venv/bin/python scripts/seed_d1.py")
         return
-    newest = max((p.stat().st_mtime for p in DATA.glob("*.json")), default=0)
-    if newest == 0:
+    newest_data = max((p.stat().st_mtime for p in DATA.glob("*.json")), default=0)
+    if newest_data == 0:
         pending("D1 seed", "no pipeline output to compare the seed against", "")
         return
-    if seed.stat().st_mtime < newest:
-        fail("D1 seed", f"older than data/, so the dashboard is showing the previous run",
-             ".venv/bin/python scripts/seed_d1.py > worker/seed.sql"
+    oldest_part = min(p.stat().st_mtime for p in parts)
+    if oldest_part < newest_data:
+        fail("D1 seed", "older than data/, so the dashboard is showing the previous run",
+             ".venv/bin/python scripts/seed_d1.py"
              " && cd worker && npm run db:schema:local && npm run db:seed:local")
     else:
-        ok("D1 seed", f"generated {age(seed)}, newer than data/")
+        size = sum(p.stat().st_size for p in parts)
+        ok("D1 seed", f"{len(parts)} part(s), {size/1e6:.1f} MB, generated "
+                      f"{age(parts[0])}, newer than data/")
 
     dist = ROOT / "web" / "dist" / "index.html"
     if not dist.exists():
