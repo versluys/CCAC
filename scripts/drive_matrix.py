@@ -138,17 +138,25 @@ def main() -> int:
     cache = read_json(cache_path, {}) or {}
 
     out: dict[str, dict] = {}
-    source = "proxy" if args.offline else "osrm"
     failed_batches = 0
+    routed_count = 0
+    proxy_count = 0
 
     for start in range(0, len(cands), per_request):
         batch = cands[start : start + per_request]
         rows = None
+        # Tracked per batch, not once for the whole run. A batch that OSRM
+        # refused falls back to straight-line estimates, and labelling those
+        # "osrm" would present an estimate as a measured drive time — the one
+        # thing this tool must never do.
+        batch_source = "proxy"
         if not args.offline:
             print(f"  routing {start + len(batch)} of {len(cands)} ...", flush=True)
             rows = osrm_matrix([(c["lat"], c["lon"]) for c in batch], dests, session, limiter, cache)
             if rows is None:
                 failed_batches += 1
+            else:
+                batch_source = "osrm"
         if rows is None:
             rows = [[haversine_mi(c["lat"], c["lon"], d[0], d[1]) / PROXY_MPH * 60 for d in dests]
                     for c in batch]
@@ -160,22 +168,38 @@ def main() -> int:
                 **summary,
                 "minutes": {h["id"]: (None if m is None else round(m, 1))
                             for h, m in zip(homes, row)},
-                "source": source if rows is not None and not args.offline else "proxy",
+                "source": batch_source,
             }
+        if batch_source == "osrm":
+            routed_count += len(batch)
+        else:
+            proxy_count += len(batch)
 
     if not args.offline:
         write_json(cache_path, cache)
     if failed_batches:
-        print(f"\n! {failed_batches} batch(es) fell back to straight-line estimates.", file=sys.stderr)
+        print(f"\n! {failed_batches} batch(es) fell back to straight-line estimates "
+              f"({proxy_count} candidate(s)). Those rows are labelled 'proxy', and the "
+              f"dashboard shows them as estimates rather than drive times.", file=sys.stderr)
 
+    # The file-level source is the weaker of the two, so a partly-failed run is
+    # never summarised as fully routed.
+    overall = "osrm" if proxy_count == 0 and not args.offline else (
+        "proxy" if routed_count == 0 else "mixed")
     write_json(DATA / "candidate_drive.json", {
         "households": len(homes),
         "bands_min": BANDS,
-        "source": source,
+        "source": overall,
+        "routed_candidates": routed_count,
+        "proxy_candidates": proxy_count,
         "caveat": ("Free-flow OSRM driving times; a Sunday morning is usually a little quicker. "
                    "Out-of-state and outlier households are excluded."
-                   if source == "osrm" else
-                   "STRAIGHT-LINE ESTIMATES at 27 mph, not drive times."),
+                   if overall == "osrm" else
+                   ("STRAIGHT-LINE ESTIMATES at 27 mph, not drive times."
+                    if overall == "proxy" else
+                    f"MIXED: {routed_count} candidate(s) routed through OSRM, "
+                    f"{proxy_count} left as straight-line estimates. Check the per-candidate "
+                    f"source before comparing two candidates against each other.")),
         "candidates": out,
     })
 
@@ -191,6 +215,7 @@ def main() -> int:
     reach = [s["bands"]["20"]["share"] for s in out.values()]
     print(f"\nAcross all candidates: best {max(reach)*100:.0f}%, "
           f"median {median(reach)*100:.0f}%, worst {min(reach)*100:.0f}% within 20 minutes.")
+    print(f"Routed: {routed_count}   straight-line estimates: {proxy_count}")
     print("Next: scripts/seed_d1.py")
     return 0
 

@@ -8,6 +8,8 @@
     60
   ],
   "source": "proxy",
+  "routed_candidates": 0,
+  "proxy_candidates": 15,
   "caveat": "STRAIGHT-LINE ESTIMATES at 27 mph, not drive times.",
   "candidates": {
     "example:cair-paravel-assembly": {

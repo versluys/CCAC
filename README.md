@@ -110,6 +110,20 @@ Put the donor workbook in `private/`. It is gitignored.
 
 ---
 
+## Before you run anything
+
+```bash
+.venv/bin/python scripts/preflight.py
+```
+
+Every check in it exists because something actually went wrong during the build:
+running from the wrong directory, an Overpass cache left over from a different
+search radius, a stage recomputed after the stage that depends on it, a seed file
+older than the data, examples still in the list, drive times that are really
+straight-line estimates. FAIL means a number in the dashboard will be wrong;
+WARN means it will be right but weaker than it could be. Run it again afterwards
+to catch the staleness checks.
+
 ## Running the pipeline
 
 **Network note:** phases 2–3 need the public Census, OSRM and Overpass APIs.
