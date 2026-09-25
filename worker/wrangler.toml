@@ -6,7 +6,10 @@
 # spare-oom (Lucy's name for the professor's spare room), or the-wardrobe.
 name = "cair-paravel"
 main = "src/index.ts"
-compatibility_date = "2026-09-01"
+# Kept at a date the pinned wrangler's runtime actually supports. A later date
+# makes wrangler fall back with a warning, so features you asked for may not be
+# the ones you get. Raise this only together with the wrangler version.
+compatibility_date = "2025-07-01"
 compatibility_flags = ["nodejs_compat"]
 
 # The built React app. One Worker serves the UI and the API so that a single
@@ -42,6 +45,9 @@ ENVIRONMENT = "development"
 ACCESS_DEV_EMAIL = "treasurer@example.org"
 CF_ACCESS_TEAM_DOMAIN = "example.cloudflareaccess.com"
 CF_ACCESS_AUD = "dev-not-verified"
+# Repeated because named environments do not inherit top-level vars. Empty
+# locally: there is no real identity to filter in development.
+ALLOWED_EMAIL_DOMAINS = ""
 
 [env.dev.assets]
 directory = "../web/dist"

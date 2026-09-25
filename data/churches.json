@@ -7,5 +7,20 @@
     "footprint_likely_ft2": 6000.0,
     "parking_likely_m2": 1500.0
   },
-  "candidates": []
+  "candidates": [
+    {
+      "id": "osm:way/480534530",
+      "name": "Riverside Test Chapel",
+      "denomination": "baptist",
+      "lat": 33.94,
+      "lon": -117.39,
+      "footprint_ft2": 7200,
+      "parking_m2": 1900,
+      "parking_spaces_est": 63,
+      "parking_lots_counted": 2,
+      "capacity_est": "likely_200+",
+      "distance_mi_from_center": 0.4,
+      "source": "osm"
+    }
+  ]
 }
