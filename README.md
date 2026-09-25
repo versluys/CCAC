@@ -291,12 +291,24 @@ weekday-peak figures waiting to be discounted. Scaling them down again
 double-counts an adjustment that was never applied — at 0.4, a real half-hour
 drive becomes twelve minutes, and the whole ranking inherits the error.
 
-An honest Sunday morning runs slightly *above* free-flow, because free-flow
-ignores signals, stop signs and pulling out of a car park. Something between 1.0
-and 1.15 is defensible. A factor below 1.0 only means something with a
-traffic-aware routing source, which this project does not have; if the vestry
-wants genuine Sunday-morning times, the route to them is a routing API that takes
-a departure time, not a multiplier on a free-flow one.
+That said, free-flow is not the same as fast. OSRM falls back to conservative
+default speeds wherever OpenStreetMap has no `maxspeed` tag, which in Riverside
+County is a great deal of road, so its times can be wrong in either direction.
+Whether they are too slow for the roads you drive is a measurable question, not
+an arguable one:
+
+```bash
+.venv/bin/python scripts/calibrate_drive.py
+```
+
+It writes `private/known_trips.csv` (gitignored). Put in three or four trips you
+actually drive with the time they really take on a Sunday morning, re-run, and it
+reports the ratio between your times and the router's. That ratio is the factor,
+derived rather than guessed. If the router turns out to be consistently slower
+than the road, a factor below 1.0 is then justified by evidence.
+
+It also warns when the ratios disagree with each other, because one multiplier
+fitted to both freeway and surface-street trips will be wrong for each.
 
 Whatever factor is used is recorded in the output and shown in the dashboard, so
 a figure produced under an adjustment is never mistaken for a measured one.
