@@ -136,18 +136,30 @@ def main() -> int:
         )
 
     iso_center = iso.get("center") or {}
+    # Accept both shapes: the keyed sets, and the single-subject file the
+    # earlier version wrote.
+    iso_sets = iso.get("sets")
+    if iso_sets is None and iso.get("features"):
+        iso_sets = {"center": iso["features"]}
+    iso_sets = iso_sets or {}
+
     lines += ["", "-- Isochrones are fully derived, so they are replaced wholesale.",
               "DELETE FROM isochrones;"]
-    for feat in iso.get("features", []):
-        props = feat.get("properties") or {}
-        lines.append(
-            "INSERT INTO isochrones (minutes, center_lat, center_lon, method, geojson, cells, "
-            "grid_spacing_km, generated_at) VALUES ("
-            + ", ".join(q(v) for v in (
-                props.get("minutes"), iso_center.get("lat"), iso_center.get("lon"),
+    iso_rows = []
+    for subject, feats in iso_sets.items():
+        for feat in feats:
+            props = feat.get("properties") or {}
+            iso_rows.append("(" + ", ".join(q(v) for v in (
+                subject, props.get("minutes"), iso_center.get("lat"), iso_center.get("lon"),
                 iso_center.get("method"), json.dumps(feat.get("geometry")),
-                props.get("cells"), iso.get("grid_spacing_km"), now,
-            )) + ");"
+                props.get("cells"), iso.get("grid_spacing_km"),
+                iso.get("source"), iso.get("caveat"), now,
+            )) + ")")
+    for chunk in batched(iso_rows, 20):
+        lines.append(
+            "INSERT INTO isochrones (subject, minutes, center_lat, center_lon, method, geojson, "
+            "cells, grid_spacing_km, source, caveat, generated_at) VALUES\n  "
+            + ",\n  ".join(chunk) + ";"
         )
 
     # Examples are fiction and are replaced wholesale; a stale one lingering in
@@ -254,7 +266,7 @@ def main() -> int:
         "candidates": len(ch.get("candidates", [])),
         "examples": len(examples.get("candidates", [])),
         "centroids": len(cent.get("centroids") or {}),
-        "isochrones": len(iso.get("features", [])),
+        "isochrones": len(iso_sets),
         "candidates_routed": len(drive_rows),
     }
     lines += [
@@ -310,7 +322,7 @@ def main() -> int:
         f"{len(cent.get('centroids') or {})} centroids, "
         f"{len(ch.get('candidates', []))} candidates, "
         f"{len(examples.get('candidates', []))} examples, "
-        f"{len(iso.get('features', []))} isochrone bands, "
+        f"{len(iso_sets)} isochrone set(s), "
         f"{len(drive_rows)} routed",
         file=sys.stderr,
     )

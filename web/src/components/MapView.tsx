@@ -33,6 +33,8 @@ interface Props {
   isochrones: GeoJSON.Feature[];
   /** Drive minutes from the selected candidate to each household, by id. */
   driveMinutes: Record<string, number | null> | null;
+  /** Where the isochrones are measured from: the selected church, or the centre. */
+  isoOrigin: { lat: number; lon: number; label: string } | null;
   /** Search radius in miles, from settings. */
   radiusMi: number;
   layers: Layers;
@@ -172,6 +174,17 @@ export default function MapView(props: Props) {
           : [],
     });
 
+    ensureSource('iso-origin', {
+      type: 'FeatureCollection',
+      features: props.isoOrigin
+        ? [{
+            type: 'Feature',
+            properties: { label: props.isoOrigin.label },
+            geometry: { type: 'Point', coordinates: [props.isoOrigin.lon, props.isoOrigin.lat] },
+          }]
+        : [],
+    });
+
     ensureSource('candidates', {
       type: 'FeatureCollection',
       features: candidates.map((c) => ({
@@ -296,6 +309,22 @@ export default function MapView(props: Props) {
       },
     });
 
+    // The point the bands are measured from, so it is never ambiguous which
+    // building the reachable area belongs to.
+    add({
+      id: 'iso-origin-halo', type: 'circle', source: 'iso-origin',
+      paint: {
+        'circle-radius': 13,
+        'circle-color': 'rgba(255,255,255,0.85)',
+        'circle-stroke-width': 2,
+        'circle-stroke-color': DRIVE_COLORS[0],
+      },
+    });
+    add({
+      id: 'iso-origin-dot', type: 'circle', source: 'iso-origin',
+      paint: { 'circle-radius': 5, 'circle-color': DRIVE_COLORS[0] },
+    });
+
     add({
       id: 'centroid-points', type: 'circle', source: 'centroids',
       paint: {
@@ -315,7 +344,7 @@ export default function MapView(props: Props) {
       },
       paint: { 'text-color': '#5f5a52', 'text-halo-color': '#fff', 'text-halo-width': 1.5 },
     });
-  }, [ready, households, attenders, centroids, candidates, center, props.isochrones, props.driveMinutes, props.radiusMi]);
+  }, [ready, households, attenders, centroids, candidates, center, props.isochrones, props.driveMinutes, props.radiusMi, props.isoOrigin]);
 
   // --- layer visibility ---------------------------------------------------
   useEffect(() => {
@@ -328,12 +357,14 @@ export default function MapView(props: Props) {
       'centroid-labels': layers.centroids,
       'ring-line': layers.ring,
       'iso-fill': layers.isochrones,
+      'iso-origin-halo': layers.isochrones && !!props.isoOrigin,
+      'iso-origin-dot': layers.isochrones && !!props.isoOrigin,
       'cand-points': layers.candidates,
     };
     for (const [id, on] of Object.entries(vis)) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
     }
-  }, [ready, layers]);
+  }, [ready, layers, props.isoOrigin]);
 
   // --- interactions -------------------------------------------------------
   useEffect(() => {

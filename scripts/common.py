@@ -303,6 +303,51 @@ class RateLimiter:
         self._last = time.monotonic()
 
 
+# ---------------------------------------------------------------------------
+# Sunday-morning traffic
+#
+# A multiplier on routed drive times. 1.0 means "use what the router said".
+#
+# Read this before changing it. OSRM's public router has no traffic model: the
+# times it returns are already free-flow, computed from speed limits on empty
+# roads. They are not weekday-peak times waiting to be discounted. Multiplying
+# them down again double-counts an adjustment that was never applied, and a
+# factor of 0.4 turns a real half-hour drive into twelve minutes.
+#
+# If anything, an honest Sunday morning runs slightly ABOVE free-flow, because
+# free-flow ignores signals, stop signs and turning out of a car park. A factor
+# between 1.0 and 1.15 is defensible. Below 1.0 needs a traffic-aware routing
+# source to mean anything, and this project does not have one.
+#
+# Override with CCAC_TRAFFIC_FACTOR, or --traffic-factor on the scripts.
+# ---------------------------------------------------------------------------
+DEFAULT_TRAFFIC_FACTOR = 1.0
+
+
+def traffic_factor(cli_value: float | None = None) -> float:
+    if cli_value is not None:
+        return float(cli_value)
+    raw = os.environ.get("CCAC_TRAFFIC_FACTOR", "").strip()
+    if not raw:
+        return DEFAULT_TRAFFIC_FACTOR
+    try:
+        return float(raw)
+    except ValueError:
+        return DEFAULT_TRAFFIC_FACTOR
+
+
+def describe_traffic(factor: float) -> str:
+    if abs(factor - 1.0) < 1e-9:
+        return "routed times as the router gave them (free-flow, no traffic model)"
+    direction = "faster" if factor < 1 else "slower"
+    warn = ""
+    if factor < 1:
+        warn = ("  WARNING: the router's times are already free-flow, so scaling them down "
+                "again double-counts an adjustment that was never applied.")
+    return (f"routed times multiplied by {factor:g} — {abs(1-factor)*100:.0f}% {direction} "
+            f"than the router said.{warn}")
+
+
 USER_AGENT = os.environ.get(
     "CCAC_USER_AGENT",
     "ChristsChapelSiteFinder/1.0 (parish site search; contact: treasurer@christschapelrec.org)",

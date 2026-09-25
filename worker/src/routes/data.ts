@@ -73,14 +73,25 @@ export async function centroids({ env }: RouteContext): Promise<Response> {
  * labelled distance rings in that case rather than passing circles off as
  * drive times.
  */
-export async function isochrones({ env }: RouteContext): Promise<Response> {
-  const { results } = await env.DB.prepare(
-    'SELECT minutes, center_lat, center_lon, method, geojson, cells, grid_spacing_km, generated_at '
-    + 'FROM isochrones ORDER BY minutes',
-  ).all<{
-    minutes: number; center_lat: number; center_lon: number; method: string;
-    geojson: string; cells: number; grid_spacing_km: number; generated_at: string;
-  }>();
+export async function isochrones({ env, url }: RouteContext): Promise<Response> {
+  // "subject" is a candidate id, or "center" for the chosen centroid. A
+  // candidate with no set of its own falls back to the centre, so the map shows
+  // something honest rather than nothing.
+  const requested = (url.searchParams.get('subject') ?? 'center').trim() || 'center';
+  const sql =
+    'SELECT subject, minutes, center_lat, center_lon, method, geojson, cells, grid_spacing_km, '
+    + 'source, caveat, generated_at FROM isochrones WHERE subject = ? ORDER BY minutes';
+  type Row = {
+    subject: string; minutes: number; center_lat: number; center_lon: number; method: string;
+    geojson: string; cells: number; grid_spacing_km: number;
+    source: string | null; caveat: string | null; generated_at: string;
+  };
+  let { results } = await env.DB.prepare(sql).bind(requested).all<Row>();
+  let usedFallback = false;
+  if (results.length === 0 && requested !== 'center') {
+    ({ results } = await env.DB.prepare(sql).bind('center').all<Row>());
+    usedFallback = results.length > 0;
+  }
 
   const features = [];
   for (const r of results) {
@@ -100,14 +111,21 @@ export async function isochrones({ env }: RouteContext): Promise<Response> {
   return json({
     type: 'FeatureCollection',
     features,
+    requested_subject: requested,
+    subject: first?.subject ?? null,
+    is_fallback: usedFallback,
     center: first ? { lat: first.center_lat, lon: first.center_lon, method: first.method } : null,
     grid_spacing_km: first?.grid_spacing_km ?? null,
     generated_at: first?.generated_at ?? null,
-    source: features.length ? 'OSRM driving profile over a sampled grid' : null,
+    // Reported by the pipeline that produced them, not assumed here.
+    source: first?.source ?? null,
     caveat: features.length
-      ? 'Blocky at the grid spacing by design: each cell means a road there was reachable '
-        + 'within the band. Free-flow times, so a Sunday morning drive is usually a little faster.'
-      : 'Not computed yet. Run scripts/isochrones.py and re-seed.',
+      ? (usedFallback
+          ? 'This candidate has no bands of its own, so these are the ones around the chosen '
+            + 'centre. Run scripts/isochrones.py --all-candidates to compute a set per church.'
+          : (first?.caveat
+             ?? 'Free-flow driving times, so a Sunday morning is usually a little quicker.'))
+      : 'Not computed yet. Run scripts/isochrones.py --all-candidates and re-seed.',
   });
 }
 

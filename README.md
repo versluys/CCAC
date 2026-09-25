@@ -172,9 +172,10 @@ half-answer.
 # 4. Route every candidate to every household. Do not skip this: see below.
 .venv/bin/python scripts/drive_matrix.py
 
-# 5. Optional: reachable-area polygons for the map, 15/30/45/60 min.
-.venv/bin/python scripts/isochrones.py
-.venv/bin/python scripts/isochrones.py --candidate "Grace"   # around one church
+# 5. Optional: reachable-area bands, 15/30/45/60 min, one set per candidate.
+export CCAC_ORS_KEY=...                                      # free, openrouteservice.org
+.venv/bin/python scripts/isochrones.py --all-candidates
+.venv/bin/python scripts/isochrones.py --candidate "Grace"   # just one church
 
 # 6. Generate the D1 seed.
 .venv/bin/python scripts/seed_d1.py > worker/seed.sql
@@ -255,6 +256,50 @@ candidates cost a couple of minutes, once, cached.
 At a 40-mile radius, distance is also the wrong filter. A church 38 miles out
 along the 91 can be a shorter Sunday drive than one 22 miles away over the
 hills. Filter the table on drive time, not miles.
+
+### Isochrones
+
+Selecting a church on the map shows the area reachable from **that building** in
+15, 30, 45 and 60 minutes, with the household points recoloured by their drive to
+it. Each candidate gets its own set; one with no set yet falls back to the
+centre's, and the panel says so rather than letting one building's bands pass for
+another's.
+
+**Get an openrouteservice key.** It is free, and it returns true isochrone
+polygons — shapes that follow the streets and run up the canyons — in one request
+per church:
+
+```bash
+export CCAC_ORS_KEY=your-key-here
+.venv/bin/python scripts/isochrones.py --all-candidates
+```
+
+Without a key the script falls back to sampling a grid through OSRM and unioning
+the cells that came back under each threshold. That is honest but blocky, and it
+needs hundreds of requests per church to approach the same detail. It is a
+stand-in, not the real thing, and the output says which you are looking at.
+
+### Sunday-morning traffic
+
+There is a `--traffic-factor` on `drive_matrix.py` and `isochrones.py`, and a
+`CCAC_TRAFFIC_FACTOR` environment variable. It defaults to **1.0**, meaning the
+routed times are used as the router gave them.
+
+Read this before lowering it. **OSRM's public router has no traffic model.** Its
+times are already free-flow: speed limits on empty roads. They are not
+weekday-peak figures waiting to be discounted. Scaling them down again
+double-counts an adjustment that was never applied — at 0.4, a real half-hour
+drive becomes twelve minutes, and the whole ranking inherits the error.
+
+An honest Sunday morning runs slightly *above* free-flow, because free-flow
+ignores signals, stop signs and pulling out of a car park. Something between 1.0
+and 1.15 is defensible. A factor below 1.0 only means something with a
+traffic-aware routing source, which this project does not have; if the vestry
+wants genuine Sunday-morning times, the route to them is a routing API that takes
+a departure time, not a multiplier on a free-flow one.
+
+Whatever factor is used is recorded in the output and shown in the dashboard, so
+a figure produced under an adjustment is never mistaken for a measured one.
 
 ### Which centre to use
 

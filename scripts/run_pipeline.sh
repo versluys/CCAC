@@ -7,7 +7,7 @@
 #   scripts/run_pipeline.sh --examples         include the 15 fictional example candidates
 #   scripts/run_pipeline.sh --discover         ALSO sweep OpenStreetMap for every church
 #   scripts/run_pipeline.sh --clear-discovered forget a previous sweep
-#   scripts/run_pipeline.sh --isochrones       compute the reachable-area polygons
+#   scripts/run_pipeline.sh --isochrones       reachable-area bands for every candidate
 #   scripts/run_pipeline.sh --reset-db         recreate the local database from scratch first
 #
 # Discovery is off by default, deliberately. A 40-mile sweep returns about 2,500
@@ -117,7 +117,7 @@ say "5/6  Drive times for every candidate"
 
 if [[ $WITH_ISOCHRONES -eq 1 ]]; then
   say "5a/6  Isochrone polygons"
-  "$PY" scripts/isochrones.py || echo "isochrones failed; the map falls back to distance rings"
+  "$PY" scripts/isochrones.py --all-candidates || echo "isochrones failed; the map falls back to distance rings"
 fi
 
 say "6/6  Database seed"

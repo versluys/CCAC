@@ -45,16 +45,20 @@ export const api = {
 
   centroids: () => call<{ default_method: string | null; centroids: Centroid[] }>('/api/centroids'),
 
-  isochrones: () =>
+  /** subject: a candidate id, or "center" for the chosen centroid. */
+  isochrones: (subject = 'center') =>
     call<{
       type: 'FeatureCollection';
       features: GeoJSON.Feature[];
+      requested_subject: string;
+      subject: string | null;
+      is_fallback: boolean;
       center: { lat: number; lon: number; method: string } | null;
       grid_spacing_km: number | null;
       generated_at: string | null;
       source: string | null;
       caveat: string;
-    }>('/api/isochrones'),
+    }>(`/api/isochrones?subject=${encodeURIComponent(subject)}`),
 
   dataQuality: () => call<DataQuality>('/api/data-quality'),
 

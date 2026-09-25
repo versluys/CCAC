@@ -46,7 +46,9 @@ export default function App() {
   const [fatal, setFatal] = useState<string | null>(null);
   const [proxyBands, setProxyBands] = useState<Record<string, { share: number; count: number; total: number }> | null>(null);
   const [isochrones, setIsochrones] = useState<GeoJSON.Feature[]>([]);
-  const [isoMeta, setIsoMeta] = useState<{ method: string | null; spacing: number | null; caveat: string } | null>(null);
+  const [isoMeta, setIsoMeta] = useState<{
+    source: string | null; caveat: string; isFallback: boolean; subject: string | null;
+  } | null>(null);
   const [driveMinutes, setDriveMinutes] = useState<Record<string, number | null> | null>(null);
   const [driveInfo, setDriveInfo] = useState<{
     source: 'osrm' | 'proxy';
@@ -95,12 +97,11 @@ export default function App() {
         // Isochrones are optional: the pipeline step that produces them needs a
         // routing service, so the map must work without them.
         try {
-          const iso = await api.isochrones();
+          const iso = await api.isochrones('center');
           setIsochrones(iso.features);
           setIsoMeta({
-            method: iso.center?.method ?? null,
-            spacing: iso.grid_spacing_km,
-            caveat: iso.caveat,
+            source: iso.source, caveat: iso.caveat,
+            isFallback: iso.is_fallback, subject: iso.subject,
           });
         } catch {
           setIsochrones([]);
@@ -115,6 +116,11 @@ export default function App() {
       }
     })();
   }, []);
+
+  const selectedCandidate = useMemo(
+    () => candidates.find((c) => c.id === selected) ?? null,
+    [candidates, selected],
+  );
 
   const center = useMemo(
     () => centroids.find((c) => c.method === chosenMethod) ?? centroids[0] ?? null,
@@ -208,6 +214,26 @@ export default function App() {
       .finally(() => { if (live) setDrivePending(false); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+
+  // The reachable area follows the selection: bands around the church being
+  // considered, not around an abstract centre. A candidate with no set of its
+  // own falls back to the centre's, and the panel says so rather than letting
+  // one building's bands stand in for another's.
+  useEffect(() => {
+    const subject = selected ?? 'center';
+    let live = true;
+    api.isochrones(subject)
+      .then((iso) => {
+        if (!live) return;
+        setIsochrones(iso.features);
+        setIsoMeta({
+          source: iso.source, caveat: iso.caveat,
+          isFallback: iso.is_fallback, subject: iso.subject,
+        });
+      })
+      .catch(() => { if (live) setIsochrones([]); });
+    return () => { live = false; };
   }, [selected]);
 
   const replaceCandidate = useCallback((c: Candidate) => {
@@ -333,6 +359,13 @@ export default function App() {
               center={center}
               isochrones={isochrones}
               driveMinutes={driveMinutes}
+              isoOrigin={
+                isochrones.length === 0 || isoMeta?.isFallback
+                  ? (center ? { lat: center.lat, lon: center.lon, label: center.method } : null)
+                  : selectedCandidate
+                    ? { lat: selectedCandidate.lat, lon: selectedCandidate.lon, label: selectedCandidate.name }
+                    : (center ? { lat: center.lat, lon: center.lon, label: center.method } : null)
+              }
               radiusMi={radiusMi}
               layers={layers}
               onSelect={setSelected}
@@ -354,7 +387,9 @@ export default function App() {
                     ['centroids', 'Centroid markers'],
                     ['ring', `${radiusMi}-mile search ring`],
                     ['isochrones', isochrones.length
-                      ? 'Drive-time isochrones (15/30/45/60 min)'
+                      ? `Reachable area from ${
+                          isoMeta?.isFallback || !selectedCandidate ? 'the centre' : 'this church'
+                        }`
                       : '15/30/45/60-min distance rings'],
                     ['candidates', 'Candidate churches'],
                   ] as [keyof Layers, string][]).map(([k, label]) => (
@@ -401,11 +436,16 @@ export default function App() {
                             </span>
                           ))}
                         </div>
-                        Routed through OSRM
-                        {isoMeta?.spacing ? ` on a ${isoMeta.spacing} km grid` : ''}
-                        {isoMeta?.method ? ` from ${isoMeta.method}` : ''}. Edges are blocky at the
-                        grid spacing on purpose. Free-flow times, so a Sunday morning is usually
-                        a little quicker.
+                        <strong>
+                          {isoMeta?.isFallback || !selectedCandidate
+                            ? `Measured from ${center?.method ?? 'the centre'}.`
+                            : `Measured from ${selectedCandidate.name}.`}
+                        </strong>{' '}
+                        {isoMeta?.isFallback && selectedCandidate && (
+                          <>This church has no bands of its own yet — run{' '}
+                          <code>scripts/isochrones.py --all-candidates</code> and re-seed.{' '}</>
+                        )}
+                        {isoMeta?.caveat}
                       </div>
                     ) : (
                       <div className="caveat" style={{ marginTop: 6, fontSize: 12 }}>

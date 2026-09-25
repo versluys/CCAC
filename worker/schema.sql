@@ -86,13 +86,24 @@ CREATE TABLE IF NOT EXISTS centroids (method TEXT PRIMARY KEY, lat REAL, lon REA
 -- band, each holding a GeoJSON geometry. These come from scripts/isochrones.py
 -- and are the real reachable areas; the map used to draw circles instead,
 -- which is a different and much friendlier claim than the roads support.
+-- Keyed by subject, so the map can show what is reachable from the building
+-- somebody has selected rather than only from an abstract centre. "center" is
+-- the chosen centroid; every other subject is a candidate id.
 CREATE TABLE IF NOT EXISTS isochrones (
-  minutes INTEGER PRIMARY KEY,
+  subject TEXT NOT NULL,
+  minutes INTEGER NOT NULL,
   center_lat REAL, center_lon REAL, method TEXT,
   geojson TEXT NOT NULL,
   cells INTEGER,
   grid_spacing_km REAL,
-  generated_at TEXT
+  -- How these were produced, carried from the pipeline rather than assumed by
+  -- the API. True isochrones from a routing service and a unioned sample grid
+  -- are different claims, and the dashboard must not make the stronger one on
+  -- the weaker one's behalf.
+  source TEXT,
+  caveat TEXT,
+  generated_at TEXT,
+  PRIMARY KEY (subject, minutes)
 );
 
 -- Routed drive times from one candidate church to every placed household.

@@ -34,14 +34,24 @@ import hashlib
 import itertools
 import json
 import math
+import os
 import sys
 import time
 
 import requests
 
-from common import CACHE, DATA, USER_AGENT, RateLimiter, read_json, write_json
+from common import (
+    CACHE, DATA, USER_AGENT, RateLimiter, describe_traffic, read_json, traffic_factor, write_json,
+)
 
 OSRM_BASE = "https://router.project-osrm.org"
+
+# openrouteservice returns true isochrone polygons: one request per point gives
+# every band, already following the road network. The grid method below samples
+# a lattice and unions the cells, which is honest but blocky, and needs hundreds
+# of requests per point to approach the same detail. Use ORS when a key is
+# present; a free account covers far more than this parish will ever need.
+ORS_ISOCHRONE_URL = "https://api.openrouteservice.org/v2/isochrones/driving-car"
 BANDS_MIN = [15, 30, 45, 60]
 
 # OSRM's public demo limits how many coordinates one table request may carry.
@@ -130,6 +140,101 @@ def cells_to_polygons(pts, minutes, dlat, dlon, threshold):
     return merged.simplify(dlon / 8, preserve_topology=True)
 
 
+def ors_isochrones(center, bands, key, session, limiter, tf=1.0) -> list[dict] | None:
+    """True isochrone polygons from openrouteservice. All bands, one request."""
+    limiter.wait()
+    try:
+        resp = session.post(
+            ORS_ISOCHRONE_URL,
+            headers={"Authorization": key, "Content-Type": "application/json",
+                     "Accept": "application/geo+json"},
+            json={
+                # ORS takes [lon, lat] and seconds.
+                "locations": [[round(center[1], 6), round(center[0], 6)]],
+                # A band of N minutes under a traffic factor f is the area
+                # reachable in N/f minutes of the router's own free-flow time:
+                # slower traffic (f > 1) shrinks the area, faster expands it.
+                "range": [int(round(b * 60 / tf)) for b in bands],
+                "range_type": "time",
+                "location_type": "start",
+                # Smooth a little: 0 hugs individual roads and looks spidery,
+                # 100 is a blob. The middle reads as a neighbourhood.
+                "smoothing": 25,
+                "attributes": ["total_pop"] if False else [],
+            },
+            timeout=120,
+        )
+        if resp.status_code == 403:
+            print("    ! openrouteservice refused the key (403)", file=sys.stderr)
+            return None
+        if resp.status_code == 429:
+            print("    ! openrouteservice rate limit reached; waiting 60s", file=sys.stderr)
+            time.sleep(60)
+            return None
+        resp.raise_for_status()
+        payload = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        print(f"    ! openrouteservice: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return None
+
+    feats = []
+    for f in payload.get("features", []):
+        secs = (f.get("properties") or {}).get("value")
+        if secs is None:
+            continue
+        # Label the band by the minutes asked for, not the free-flow seconds sent.
+        feats.append({
+            "type": "Feature",
+            "properties": {"minutes": int(round(secs * tf / 60)), "cells": None},
+            "geometry": f.get("geometry"),
+        })
+    # ORS returns largest first; draw order wants that reversed by the map,
+    # which sorts anyway. Sort here so the file reads sensibly.
+    feats.sort(key=lambda f: f["properties"]["minutes"])
+    return feats or None
+
+
+def load_candidates() -> list[dict]:
+    """Every candidate on file, discovered and example alike."""
+    out = []
+    for name in ("churches.json", "examples.json"):
+        payload = read_json(DATA / name, {}) or {}
+        for c in payload.get("candidates", []):
+            if c.get("lat") is not None:
+                out.append(c)
+    return out
+
+
+def compute_set(center, bands, args, session, limiter, cache, label, ors_key=None,
+                tf=1.0) -> list[dict]:
+    """The bands around one point, preferring real isochrones over a sampled grid."""
+    if ors_key:
+        feats = ors_isochrones(center, bands, ors_key, session, limiter, tf)
+        if feats:
+            return feats
+        print(f"    falling back to the sampled grid for {label}", file=sys.stderr)
+
+    pts, dlat, dlon = build_grid(center[0], center[1], args.max_mi, args.spacing_km)
+    minutes = osrm_durations(center, pts, session, limiter, cache)
+    minutes = [None if m is None else m * tf for m in minutes]
+    reached = [m for m in minutes if m is not None]
+    if not reached:
+        print(f"  ! {label}: OSRM returned nothing", file=sys.stderr)
+        return []
+    features = []
+    for band in bands:
+        poly = cells_to_polygons(pts, minutes, dlat, dlon, band)
+        if poly is None:
+            continue
+        features.append({
+            "type": "Feature",
+            "properties": {"minutes": band,
+                           "cells": len([m for m in minutes if m is not None and m <= band])},
+            "geometry": json.loads(json.dumps(poly.__geo_interface__)),
+        })
+    return features
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--center-method", default=None)
@@ -137,8 +242,13 @@ def main() -> int:
     ap.add_argument("--lon", type=float)
     ap.add_argument(
         "--candidate",
-        help="draw the bands around a candidate church instead of the centre; "
-             "an id from data/churches.json, or part of its name",
+        help="draw the bands around one candidate church instead of the centre; "
+             "an id, or part of its name",
+    )
+    ap.add_argument(
+        "--all-candidates", action="store_true",
+        help="compute a set for every candidate, so the map can show the reachable "
+             "area around whichever one is selected",
     )
     # A 60-minute band reaches roughly 55 miles on open freeway, so the grid
     # has to cover that or the outer isochrone gets clipped into a square.
@@ -146,6 +256,10 @@ def main() -> int:
     ap.add_argument("--spacing-km", type=float, default=2.5, help="grid spacing; smaller is slower")
     ap.add_argument("--bands", default=",".join(str(b) for b in BANDS_MIN),
                     help="comma-separated minute bands")
+    ap.add_argument("--traffic-factor", type=float, default=None,
+                    help="multiply drive times (1.0 = as routed)")
+    ap.add_argument("--no-ors", action="store_true",
+                    help="ignore CCAC_ORS_KEY and use the sampled grid instead")
     args = ap.parse_args()
 
     cent = read_json(DATA / "centroids.json")
@@ -193,57 +307,79 @@ def main() -> int:
         print("! no bands requested", file=sys.stderr)
         return 2
 
-    pts, dlat, dlon = build_grid(center[0], center[1], args.max_mi, args.spacing_km)
-    print(f"Centre: {center[0]:.4f}, {center[1]:.4f} (method: {method})")
-    print(f"Sampling {len(pts)} grid points at {args.spacing_km} km spacing "
-          f"within {args.max_mi:.0f} mi, in batches of {CHUNK}.\n")
+    ors_key = None if args.no_ors else os.environ.get("CCAC_ORS_KEY", "").strip() or None
+    tf = traffic_factor(args.traffic_factor)
+    print(f"Traffic: {describe_traffic(tf)}")
 
     session = requests.Session()
-    limiter = RateLimiter(1.1)
+    # ORS free accounts allow ~40 requests a minute; OSRM asks for gentleness.
+    limiter = RateLimiter(1.6 if ors_key else 1.1)
     cache_path = CACHE / "osrm_isochrone_cache.json"
     cache = read_json(cache_path, {}) or {}
 
-    minutes = osrm_durations(center, pts, session, limiter, cache)
-    write_json(cache_path, cache)
+    # Every point we draw bands around, keyed by subject: the chosen centre, and
+    # each candidate, so the map can answer "what can be reached from HERE" for
+    # whichever building is selected rather than only for an abstract centre.
+    subjects: list[tuple[str, tuple[float, float], str]] = [("center", center, f"centre ({method})")]
+    if args.all_candidates:
+        cands = load_candidates()
+        if not cands:
+            print("! --all-candidates but no candidates on file", file=sys.stderr)
+            return 2
+        subjects += [(c["id"], (c["lat"], c["lon"]), c.get("name") or c["id"]) for c in cands]
 
-    reached = [m for m in minutes if m is not None]
-    if not reached:
-        print("\n! OSRM returned nothing. Nothing was written.", file=sys.stderr)
+    print(f"Bands: {', '.join(str(b) for b in bands)} min")
+    print(f"Subjects: {len(subjects)}"
+          f"{' (the centre only; --all-candidates for every candidate)' if not args.all_candidates else ''}")
+    if ors_key:
+        print(f"Method: openrouteservice — true isochrone polygons, one request per subject.")
+        print(f"About {len(subjects)} request(s) in total.\n")
+    else:
+        probe, _, _ = build_grid(center[0], center[1], args.max_mi, args.spacing_km)
+        per = -(-len(probe) // CHUNK)
+        print("Method: sampled grid through OSRM. Honest but blocky, and slow: a real")
+        print("isochrone follows the streets, and a lattice at this spacing cannot.")
+        print("  For the shape you actually want, get a free key at openrouteservice.org")
+        print("  and set CCAC_ORS_KEY. One request per subject instead of hundreds.")
+        print(f"\n{len(probe)} grid points per subject at {args.spacing_km} km spacing, "
+              f"in batches of {CHUNK}.")
+        print(f"About {per * len(subjects)} OSRM request(s) in total, cached between runs.\n")
+
+    sets: dict[str, list[dict]] = {}
+    for i, (key, point, label) in enumerate(subjects, 1):
+        print(f"[{i}/{len(subjects)}] {label}")
+        feats = compute_set(point, bands, args, session, limiter, cache, label, ors_key, tf)
+        if feats:
+            sets[key] = feats
+            print("    " + ", ".join(f"{f['properties']['minutes']}min:{f['properties']['cells']}"
+                                     for f in feats))
+        write_json(cache_path, cache)
+
+    if not sets:
+        print("\n! nothing computed. Nothing was written.", file=sys.stderr)
         return 3
-    print(f"\nRouted {len(reached)} of {len(pts)} grid points "
-          f"({len(pts) - len(reached)} unreachable or unanswered).")
-    print(f"Furthest routed point: {max(reached):.0f} min.")
-    if max(reached) < max(bands):
-        print(f"  note: nothing reached {max(bands)} min, so that band will be the whole grid.")
-
-    features = []
-    for band in bands:
-        poly = cells_to_polygons(pts, minutes, dlat, dlon, band)
-        n = len([m for m in minutes if m is not None and m <= band])
-        if poly is None:
-            print(f"  {band:>2} min: no cells reached")
-            continue
-        features.append({
-            "type": "Feature",
-            "properties": {"minutes": band, "cells": n},
-            "geometry": json.loads(json.dumps(poly.__geo_interface__)),
-        })
-        print(f"  {band:>2} min: {n} cells")
 
     write_json(DATA / "isochrones.json", {
-        "type": "FeatureCollection",
+        "type": "IsochroneSets",
         "center": {"lat": round(center[0], 5), "lon": round(center[1], 5), "method": method},
         "grid_spacing_km": args.spacing_km,
         "bands_min": bands,
-        "source": "OSRM driving profile over a sampled grid",
+        "traffic_factor": tf,
+        "source": ("openrouteservice isochrones, driving-car"
+                   if ors_key else "OSRM driving profile over a sampled grid"),
         "caveat": (
+            (f"Drive times multiplied by {tf:g}. " if abs(tf - 1.0) > 1e-9 else "")
+            + ("Free-flow driving times, so a Sunday morning is usually a little quicker."
+            if ors_key else
             "Blocky at the grid spacing by design: each cell means a road there was "
             "reachable within the band. Free-flow OSRM times, so a Sunday morning "
-            "drive is usually a little faster than this shows."
+            "drive is usually a little faster than this shows.")
         ),
-        "features": features,
+        # Keyed by subject: "center", or a candidate id.
+        "sets": sets,
     })
-    print("\nNext: scripts/seed_d1.py")
+    print(f"\n{len(sets)} isochrone set(s) written.")
+    print("Next: scripts/seed_d1.py")
     return 0
 
 

@@ -33,7 +33,10 @@ import time
 
 import requests
 
-from common import CACHE, DATA, USER_AGENT, RateLimiter, haversine_mi, median, read_json, write_json
+from common import (
+    CACHE, DATA, USER_AGENT, RateLimiter, describe_traffic, haversine_mi, median,
+    read_json, traffic_factor, write_json,
+)
 
 OSRM_BASE = "https://router.project-osrm.org"
 MAX_COORDS = 95
@@ -93,9 +96,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--limit", type=int, default=0,
                     help="route only the N nearest candidates; 0 routes all of them")
+    ap.add_argument("--traffic-factor", type=float, default=None,
+                    help="multiply routed times (1.0 = as routed; below 1.0 double-counts, "
+                         "because the router is already free-flow)")
     ap.add_argument("--offline", action="store_true",
                     help="use a straight-line proxy instead of routing; clearly labelled as such")
     args = ap.parse_args()
+
+    tf = traffic_factor(args.traffic_factor)
+    print(f"Traffic: {describe_traffic(tf)}\n")
 
     churches = read_json(DATA / "churches.json", {}) or {}
     examples = read_json(DATA / "examples.json", {}) or {}
@@ -163,6 +172,7 @@ def main() -> int:
             if not args.offline:
                 print("    fell back to a straight-line estimate for this batch", file=sys.stderr)
         for c, row in zip(batch, rows):
+            row = [None if m is None else m * tf for m in row]
             summary = summarise(row, len(homes))
             out[c["id"]] = {
                 **summary,
@@ -189,6 +199,8 @@ def main() -> int:
     write_json(DATA / "candidate_drive.json", {
         "households": len(homes),
         "bands_min": BANDS,
+        "traffic_factor": tf,
+        "traffic_note": describe_traffic(tf),
         "source": overall,
         "routed_candidates": routed_count,
         "proxy_candidates": proxy_count,
