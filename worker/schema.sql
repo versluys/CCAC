@@ -108,6 +108,12 @@ CREATE TABLE IF NOT EXISTS candidate_drive (
   households INTEGER,
   minutes_json TEXT NOT NULL,      -- { household_id: minutes }
   bands_json TEXT NOT NULL,        -- { "15": {share, count}, ... }
+  -- The 20-minute share as its own column, because it is the one figure the
+  -- scoring reads on every row. It used to be copied into candidates as well,
+  -- which needed a bulk UPDATE with a CASE of a hundred branches per statement
+  -- to seed, and those statements are what finally broke the seed. One source
+  -- of truth, read through a join.
+  share_20min REAL,
   median_min REAL,
   mean_min REAL
 );

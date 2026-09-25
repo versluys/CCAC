@@ -19,7 +19,7 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
-from common import DATA, read_json
+from common import DATA, ROOT, read_json
 
 DEFAULT_SETTINGS = {
     # Scoring weights (PRD 7.6). Editable in the UI; these are only the seed.
@@ -43,6 +43,12 @@ DEFAULT_SETTINGS = {
 }
 
 
+def batched(seq, n):
+    """Chunk a sequence, so one statement carries many rows."""
+    for i in range(0, len(seq), n):
+        yield seq[i : i + n]
+
+
 def q(v) -> str:
     """SQL literal. Everything here is our own generated data, but quote anyway."""
     if v is None:
@@ -52,6 +58,36 @@ def q(v) -> str:
     if isinstance(v, (int, float)):
         return repr(v)
     return "'" + str(v).replace("'", "''") + "'"
+
+
+# wrangler sends a whole --file in one D1 batch, and a large batch fails. The
+# statement count was never the problem; the payload size is. Measured against
+# the local D1 emulator: 7 MB gives an opaque "internal error", 1.6 MB a
+# connection reset, 373 KB applies and 390 KB raises SQLITE_TOOBIG. The cap sits
+# somewhere between, so this is set well below it — a seed that takes ten seconds
+# longer and works beats one tuned to the edge of a limit nobody documents.
+MAX_FILE_BYTES = 150_000
+
+# Rows per statement. Kept modest for the same reason: a 50 KB statement is
+# legal but leaves no headroom when a church has a long name and address.
+ROWS_PER_STATEMENT = 100
+
+
+def pack(statements: list[str]) -> list[list[str]]:
+    """Group statements into files that each stay under the size limit."""
+    files: list[list[str]] = []
+    current: list[str] = []
+    size = 0
+    for stmt in statements:
+        n = len(stmt) + 1
+        if current and size + n > MAX_FILE_BYTES:
+            files.append(current)
+            current, size = [], 0
+        current.append(stmt)
+        size += n
+    if current:
+        files.append(current)
+    return files
 
 
 def main() -> int:
@@ -119,12 +155,13 @@ def main() -> int:
     lines += ["", "DELETE FROM candidates WHERE is_example = 1;"]
 
     lines += ["", "-- Candidates: refresh discovered geometry, preserve human research."]
+    cols = ["id", "name", "denomination", "address", "lat", "lon", "website", "phone",
+            "footprint_ft2", "parking_m2", "parking_spaces_est", "parking_lots_counted",
+            "parking_shared_suspect", "capacity_est",
+            "distance_mi_from_center", "source", "is_example", "tenancy_possible",
+            "listed_for_lease", "denomination_notes", "updated_by", "updated_at"]
+    cand_rows = []
     for c in list(ch.get("candidates", [])) + list(examples.get("candidates", [])):
-        cols = ["id", "name", "denomination", "address", "lat", "lon", "website", "phone",
-                "footprint_ft2", "parking_m2", "parking_spaces_est", "parking_lots_counted",
-                "parking_shared_suspect", "capacity_est",
-                "distance_mi_from_center", "source", "is_example", "tenancy_possible",
-                "listed_for_lease", "denomination_notes", "updated_by", "updated_at"]
         vals = [c.get("id"), c.get("name"), c.get("denomination"), c.get("address"),
                 c.get("lat"), c.get("lon"), c.get("website"), c.get("phone"),
                 c.get("footprint_ft2"), c.get("parking_m2"), c.get("parking_spaces_est"),
@@ -133,53 +170,68 @@ def main() -> int:
                 c.get("source") or "osm", c.get("is_example", 0),
                 c.get("tenancy_possible") or "unknown", c.get("listed_for_lease"),
                 c.get("denomination_notes"), "pipeline", now]
-        lines.append(
-            f"INSERT INTO candidates ({', '.join(cols)}) VALUES ({', '.join(q(v) for v in vals)})\n"
-            "  ON CONFLICT(id) DO UPDATE SET\n"
-            "    name = excluded.name,\n"
-            "    denomination = COALESCE(candidates.denomination, excluded.denomination),\n"
-            "    address = COALESCE(candidates.address, excluded.address),\n"
-            "    lat = excluded.lat, lon = excluded.lon,\n"
-            "    website = COALESCE(candidates.website, excluded.website),\n"
-            "    phone = COALESCE(candidates.phone, excluded.phone),\n"
-            "    footprint_ft2 = excluded.footprint_ft2,\n"
-            "    parking_m2 = excluded.parking_m2,\n"
-            "    parking_spaces_est = excluded.parking_spaces_est,\n"
-            "    parking_lots_counted = excluded.parking_lots_counted,\n"
-            "    parking_shared_suspect = excluded.parking_shared_suspect,\n"
-            "    distance_mi_from_center = excluded.distance_mi_from_center,\n"
-            "    -- a confirmed seat count always outranks the estimated band\n"
-            "    capacity_est = CASE WHEN candidates.capacity_confirmed IS NOT NULL\n"
-            "                        THEN candidates.capacity_est ELSE excluded.capacity_est END;"
-        )
+        cand_rows.append("(" + ", ".join(q(v) for v in vals) + ")")
 
-    # Batch-routed drive times. These fill share_hh_within_20min, which the
-    # discovery pipeline cannot know and which carries the heaviest scoring
-    # weight. Without them every candidate scores zero on drive share, and the
-    # sort order that decides which candidates a person ever opens is computed
-    # with the most important factor missing.
+    # The conflict clause refreshes what discovery measures and leaves every
+    # hand-entered field alone, so re-running the pipeline never undoes an
+    # afternoon of phone calls.
+    conflict = (
+        "  ON CONFLICT(id) DO UPDATE SET\n"
+        "    name = excluded.name,\n"
+        "    denomination = COALESCE(candidates.denomination, excluded.denomination),\n"
+        "    address = COALESCE(candidates.address, excluded.address),\n"
+        "    lat = excluded.lat, lon = excluded.lon,\n"
+        "    website = COALESCE(candidates.website, excluded.website),\n"
+        "    phone = COALESCE(candidates.phone, excluded.phone),\n"
+        "    footprint_ft2 = excluded.footprint_ft2,\n"
+        "    parking_m2 = excluded.parking_m2,\n"
+        "    parking_spaces_est = excluded.parking_spaces_est,\n"
+        "    parking_lots_counted = excluded.parking_lots_counted,\n"
+        "    parking_shared_suspect = excluded.parking_shared_suspect,\n"
+        "    distance_mi_from_center = excluded.distance_mi_from_center,\n"
+        "    capacity_est = CASE WHEN candidates.capacity_confirmed IS NOT NULL\n"
+        "                        THEN candidates.capacity_est ELSE excluded.capacity_est END;"
+    )
+    for chunk in batched(cand_rows, ROWS_PER_STATEMENT):
+        lines.append(f"INSERT INTO candidates ({', '.join(cols)}) VALUES\n  "
+                     + ",\n  ".join(chunk) + "\n" + conflict)
+
     drive_rows = drive.get("candidates") or {}
     if drive_rows:
-        lines += ["", f"-- Routed drive times for {len(drive_rows)} candidate(s).",
+        # Only the summary is seeded, never the per-household minutes.
+        #
+        # The minutes are read for exactly one candidate at a time — the one
+        # somebody has open — and the Worker already routes and caches that on
+        # demand. Seeding them for every candidate turned a 7 MB file of 49,000
+        # statements out of data no view reads, and wrangler batches a file into
+        # a single D1 call, which fails outright at that size. The summary is
+        # what the ranking needs, and it is two orders of magnitude smaller.
+        lines += ["", f"-- Routed drive summaries for {len(drive_rows)} candidate(s).",
+                  "-- Per-household minutes are routed on demand, not seeded.",
                   "DELETE FROM candidate_drive;"]
+        rows = []
         for cid, d in drive_rows.items():
             bands = {k: {"share": v["share"], "count": v["count"]} for k, v in d["bands"].items()}
+            rows.append("(" + ", ".join(q(v) for v in (
+                cid, now, d.get("source") or "osrm", drive.get("households"),
+                "", json.dumps(bands),
+                (d["bands"].get("20") or {}).get("share"),
+                d.get("median_min"), d.get("mean_min"),
+            )) + ")")
+
+        # Batched so the statement count stays in the hundreds rather than the
+        # tens of thousands.
+        for chunk in batched(rows, ROWS_PER_STATEMENT):
             lines.append(
                 "INSERT INTO candidate_drive (candidate_id, computed_at, source, households, "
-                "minutes_json, bands_json, median_min, mean_min) SELECT "
-                + ", ".join(q(v) for v in (
-                    cid, now, d.get("source") or "osrm", drive.get("households"),
-                    json.dumps(d.get("minutes") or {}), json.dumps(bands),
-                    d.get("median_min"), d.get("mean_min"),
-                ))
-                + f" WHERE EXISTS (SELECT 1 FROM candidates WHERE id = {q(cid)});"
+                "minutes_json, bands_json, share_20min, median_min, mean_min) VALUES\n  "
+                + ",\n  ".join(chunk)
+                + "\n  ON CONFLICT(candidate_id) DO UPDATE SET "
+                  "computed_at = excluded.computed_at, source = excluded.source, "
+                  "households = excluded.households, bands_json = excluded.bands_json, "
+                  "share_20min = excluded.share_20min, "
+                  "median_min = excluded.median_min, mean_min = excluded.mean_min;"
             )
-            within20 = (d["bands"].get("20") or {}).get("share")
-            if within20 is not None:
-                lines.append(
-                    f"UPDATE candidates SET share_hh_within_20min = {q(within20)}, "
-                    f"drive_min_from_center = {q(d.get('median_min'))} WHERE id = {q(cid)};"
-                )
 
     lines += ["", "-- Settings seed only where absent; never clobber edited weights."]
     for k, v in DEFAULT_SETTINGS.items():
@@ -215,12 +267,49 @@ def main() -> int:
         "COMMIT;",
     ]
 
-    print("\n".join(lines))
+    # The prelude and the closing statement are handled per file, so strip the
+    # single transaction the statement list was built with.
+    body = [l for l in lines if l not in ("BEGIN TRANSACTION;", "COMMIT;",
+                                          "PRAGMA foreign_keys = ON;")]
+    # Re-join anything that spans lines into whole statements, so a file never
+    # ends halfway through one.
+    statements: list[str] = []
+    buf: list[str] = []
+    for line in body:
+        buf.append(line)
+        if line.rstrip().endswith(";"):
+            statements.append("\n".join(buf).strip())
+            buf = []
+    if buf and "".join(buf).strip():
+        statements.append("\n".join(buf).strip())
+    statements = [st for st in statements if st]
+
+    out_dir = ROOT / "worker" / "seed"
+    if out_dir.exists():
+        for old_file in out_dir.glob("*.sql"):
+            old_file.unlink()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    groups = pack(statements)
+    for i, group in enumerate(groups, 1):
+        path = out_dir / f"{i:03d}.sql"
+        path.write_text(
+            f"-- Generated by scripts/seed_d1.py, part {i} of {len(groups)}.\n"
+            "-- Applied in numeric order; wrangler sends one file per D1 batch.\n"
+            "PRAGMA foreign_keys = ON;\nBEGIN TRANSACTION;\n"
+            + "\n".join(group)
+            + "\nCOMMIT;\n"
+        )
+
+    total = sum((out_dir / f"{i:03d}.sql").stat().st_size for i in range(1, len(groups) + 1))
+    print(f"wrote {len(groups)} file(s) to worker/seed/ "
+          f"({len(statements)} statements, {total/1e6:.1f} MB total)")
     print(
         f"\n-- summary: {len(hh.get('households', []))} households, "
         f"{len(att.get('attenders', []))} attenders, "
         f"{len(cent.get('centroids') or {})} centroids, "
         f"{len(ch.get('candidates', []))} candidates, "
+        f"{len(examples.get('candidates', []))} examples, "
         f"{len(iso.get('features', []))} isochrone bands, "
         f"{len(drive_rows)} routed",
         file=sys.stderr,

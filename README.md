@@ -281,6 +281,28 @@ signature, audience, issuer and expiry. The presence of the
 token minted for a *different* Access application is signed by the same team
 key and is rejected on the audience check.
 
+### When the schema changes
+
+`schema.sql` uses `CREATE TABLE IF NOT EXISTS`, which cannot add a column to a
+table that already exists. A database created before a schema change keeps its
+old shape, and the seed then fails on the missing column.
+
+Locally that is harmless to fix, because everything except hand-entered notes,
+status changes and contacts is regenerated from `seed.sql`:
+
+```bash
+scripts/run_pipeline.sh --keep-discovery --serve --reset-db
+```
+
+On a deployed D1 it is not harmless: the committee's research lives there. Add
+the column with `ALTER TABLE` rather than recreating the database:
+
+```bash
+cd worker
+npx wrangler d1 execute ccac-sitefinder --remote \
+  --command "ALTER TABLE candidates ADD COLUMN is_example INTEGER DEFAULT 0"
+```
+
 ### Local development
 
 ```bash

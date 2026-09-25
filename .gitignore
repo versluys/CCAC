@@ -53,5 +53,6 @@ dist/
 
 # generated
 worker/seed.sql
+worker/seed/
 web/dist/
 *.tsbuildinfo

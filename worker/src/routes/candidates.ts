@@ -129,7 +129,17 @@ export async function listCandidates({ env, url }: RouteContext): Promise<Respon
     binds.push(maxDrive);
   }
 
-  const sql = `SELECT * FROM candidates ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY name`;
+  // The drive figures live in candidate_drive, and are read through a join
+  // rather than copied onto every candidate row. COALESCE lets a value set by
+  // hand, or by the on-demand route, take precedence over the seeded one.
+  const sql = `
+    SELECT c.*,
+           COALESCE(c.share_hh_within_20min, d.share_20min) AS share_hh_within_20min,
+           COALESCE(c.drive_min_from_center, d.median_min)  AS drive_min_from_center
+    FROM candidates c
+    LEFT JOIN candidate_drive d ON d.candidate_id = c.id
+    ${where.length ? 'WHERE ' + where.map((w) => w.replace(/\b(status|capacity_est|drive_min_from_center|distance_mi_from_center)\b/g, 'c.$1')).join(' AND ') : ''}
+    ORDER BY c.name`;
   const { results } = await db.prepare(sql).bind(...binds).all<CandidateRow>();
   const decorated = await decorate(db, results);
   decorated.sort((a, b) => b.fit_score - a.fit_score);
@@ -142,7 +152,16 @@ export async function listCandidates({ env, url }: RouteContext): Promise<Respon
 
 export async function getCandidate({ env, params }: RouteContext): Promise<Response> {
   const db = env.DB;
-  const row = await db.prepare('SELECT * FROM candidates WHERE id = ?').bind(params.id).first<CandidateRow>();
+  const row = await db
+    .prepare(`
+      SELECT c.*,
+             COALESCE(c.share_hh_within_20min, d.share_20min) AS share_hh_within_20min,
+             COALESCE(c.drive_min_from_center, d.median_min)  AS drive_min_from_center
+      FROM candidates c
+      LEFT JOIN candidate_drive d ON d.candidate_id = c.id
+      WHERE c.id = ?`)
+    .bind(params.id)
+    .first<CandidateRow>();
   if (!row) return error('no such candidate', 404);
   const [candidate] = await decorate(db, [row]);
   const [notes, contacts] = await Promise.all([
@@ -267,16 +286,27 @@ export async function candidateDrive({ env, params, url, identity }: RouteContex
     .first<{ id: string; name: string; lat: number; lon: number }>();
   if (!cand) return error('no such candidate', 404);
 
+  interface DriveRow {
+    computed_at: string; source: string; households: number;
+    minutes_json: string; bands_json: string; median_min: number; mean_min: number;
+  }
+
+  // The seed carries the summary only: per-household minutes are routed for the
+  // one candidate somebody opens, not for the thousands nobody will. A stored
+  // row with no minutes is therefore a hit for the ranking and a miss for the
+  // map colouring and the histogram, so it falls through to routing while
+  // staying available as a fallback if routing fails.
+  let seededSummary: DriveRow | null = null;
+
   const refresh = url.searchParams.get('refresh') === '1';
   if (!refresh) {
     const cached = await db
       .prepare('SELECT * FROM candidate_drive WHERE candidate_id = ?')
       .bind(params.id)
-      .first<{
-        computed_at: string; source: string; households: number;
-        minutes_json: string; bands_json: string; median_min: number; mean_min: number;
-      }>();
-    if (cached) {
+      .first<DriveRow>();
+    if (cached && !cached.minutes_json) {
+      seededSummary = cached;
+    } else if (cached) {
       return json({
         candidate_id: params.id,
         cached: true,
@@ -312,6 +342,24 @@ export async function candidateDrive({ env, params, url, identity }: RouteContex
   if (routed) {
     minutes = routed.minutes;
     source = 'osrm';
+  } else if (seededSummary) {
+    // Routing failed, but the pipeline already measured this candidate. Return
+    // its stored summary rather than replacing measured figures with a
+    // straight-line guess, and say the per-household detail is unavailable.
+    return json({
+      candidate_id: params.id,
+      cached: true,
+      computed_at: seededSummary.computed_at,
+      source: seededSummary.source,
+      households: seededSummary.households,
+      minutes: {},
+      bands: JSON.parse(seededSummary.bands_json),
+      median_min: seededSummary.median_min,
+      mean_min: seededSummary.mean_min,
+      bands_min: DRIVE_BANDS,
+      note: 'Routed summary from the pipeline. Per-household detail needs OSRM, '
+        + 'which is not reachable right now, so the map cannot colour by drive time.',
+    });
   } else {
     // Fall back rather than fail, but say which it is, every time. A proxy
     // figure presented as a drive time is worse than no figure.
@@ -330,14 +378,16 @@ export async function candidateDrive({ env, params, url, identity }: RouteContex
   await db
     .prepare(
       'INSERT INTO candidate_drive (candidate_id, computed_at, source, households, minutes_json, '
-      + 'bands_json, median_min, mean_min) VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
+      + 'bands_json, share_20min, median_min, mean_min) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) '
       + 'ON CONFLICT(candidate_id) DO UPDATE SET computed_at = excluded.computed_at, '
       + 'source = excluded.source, households = excluded.households, '
       + 'minutes_json = excluded.minutes_json, bands_json = excluded.bands_json, '
+      + 'share_20min = excluded.share_20min, '
       + 'median_min = excluded.median_min, mean_min = excluded.mean_min',
     )
     .bind(params.id, now, source, hh.length, JSON.stringify(byId),
-          JSON.stringify(summary.bands), summary.median_min, summary.mean_min)
+          JSON.stringify(summary.bands),
+          summary.bands['20']?.share ?? null, summary.median_min, summary.mean_min)
     .run();
 
   // Keep the 20-minute share in step so the scoring weight has real input.

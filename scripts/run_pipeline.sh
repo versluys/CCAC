@@ -7,6 +7,7 @@
 #   scripts/run_pipeline.sh --examples       add the 15 fictional examples
 #   scripts/run_pipeline.sh --isochrones     also compute the reachable-area polygons
 #   scripts/run_pipeline.sh --serve          build the web app and start the worker at the end
+#   scripts/run_pipeline.sh --reset-db       recreate the local database from scratch first
 #
 # This exists because the two mistakes that actually cost time during the build
 # were not logic errors. They were running from the wrong directory, and pasting
@@ -28,6 +29,7 @@ WITH_EXAMPLES=0
 WITH_ISOCHRONES=0
 SERVE=0
 FORCE=0
+RESET_DB=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,8 +37,9 @@ while [[ $# -gt 0 ]]; do
     --examples)       WITH_EXAMPLES=1 ;;
     --isochrones)     WITH_ISOCHRONES=1 ;;
     --serve)          SERVE=1 ;;
+    --reset-db)       RESET_DB=1 ;;
     --force)          FORCE=1 ;;
-    -h|--help)        sed -n '3,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)        sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -92,8 +95,7 @@ if [[ $WITH_ISOCHRONES -eq 1 ]]; then
 fi
 
 say "6/6  Database seed"
-"$PY" scripts/seed_d1.py > worker/seed.sql || die "seed generation failed"
-wc -l < worker/seed.sql | xargs printf 'worker/seed.sql: %s statements\n'
+"$PY" scripts/seed_d1.py || die "seed generation failed"
 
 say "Preflight again"
 "$PY" scripts/preflight.py --stage post || echo "(see the warnings above)"
@@ -101,7 +103,26 @@ say "Preflight again"
 if [[ $SERVE -eq 1 ]]; then
   say "Building and serving"
   ( cd web && npm run build )
-  ( cd worker && npm run db:schema:local && npm run db:seed:local )
+
+  # schema.sql uses CREATE TABLE IF NOT EXISTS, so it cannot add a column to a
+  # table that already exists. A local database made before a schema change
+  # keeps the old shape and the seed then fails on the missing column. The
+  # local database holds nothing that is not regenerated from seed.sql — except
+  # notes, status changes and contacts somebody typed in, which is why this is
+  # a flag and not automatic.
+  if [[ $RESET_DB -eq 1 ]]; then
+    echo "removing the local database (--reset-db): any locally entered notes or"
+    echo "status changes go with it; everything else comes back from seed.sql"
+    rm -rf worker/.wrangler/state
+  fi
+
+  ( cd worker && npm run db:schema:local && npm run db:seed:local ) || {
+    echo
+    echo "The seed failed. The usual cause is a local database created before a" >&2
+    echo "schema change, which CREATE TABLE IF NOT EXISTS cannot alter." >&2
+    echo "  scripts/run_pipeline.sh --keep-discovery --serve --reset-db" >&2
+    exit 1
+  }
   echo
   echo "Open http://localhost:8787"
   ( cd worker && npm run dev )
