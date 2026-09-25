@@ -265,14 +265,23 @@ it. Each candidate gets its own set; one with no set yet falls back to the
 centre's, and the panel says so rather than letting one building's bands pass for
 another's.
 
-**Get an openrouteservice key.** It is free, and it returns true isochrone
-polygons — shapes that follow the streets and run up the canyons — in one request
-per church:
+**Get an openrouteservice key.** Sign up at openrouteservice.org, and the key is
+the **Basic Key** on the API Key tab — the long string beginning `ey`. It is
+free, and it returns true isochrone polygons, shapes that follow the streets and
+run up the canyons, in one request per church.
 
 ```bash
 export CCAC_ORS_KEY=your-key-here
 .venv/bin/python scripts/isochrones.py --all-candidates
 ```
+
+Keep it in the shell, not in the repository: it is a credential, and the key page
+shows it masked for a reason. Nothing here writes it to disk.
+
+The free tier allows **20 isochrone requests a minute and 500 a day**, so the
+script paces itself at one every 3.2 seconds. Fifteen churches plus the centre
+takes about a minute. If the candidate list ever passes 500 the script says so
+before starting rather than failing partway through.
 
 Without a key the script falls back to sampling a grid through OSRM and unioning
 the cells that came back under each threshold. That is honest but blocky, and it

@@ -52,6 +52,12 @@ OSRM_BASE = "https://router.project-osrm.org"
 # of requests per point to approach the same detail. Use ORS when a key is
 # present; a free account covers far more than this parish will ever need.
 ORS_ISOCHRONE_URL = "https://api.openrouteservice.org/v2/isochrones/driving-car"
+
+# Free-tier limits at the time of writing: 20 isochrone requests per minute,
+# 500 per day. Staying under the per-minute cap by a margin is cheaper than
+# handling the 429 it would otherwise produce partway through a run.
+ORS_MIN_INTERVAL_S = 3.2
+ORS_DAILY_QUOTA = 500
 BANDS_MIN = [15, 30, 45, 60]
 
 # OSRM's public demo limits how many coordinates one table request may carry.
@@ -312,8 +318,10 @@ def main() -> int:
     print(f"Traffic: {describe_traffic(tf)}")
 
     session = requests.Session()
-    # ORS free accounts allow ~40 requests a minute; OSRM asks for gentleness.
-    limiter = RateLimiter(1.6 if ors_key else 1.1)
+    # A free openrouteservice key allows 20 isochrone requests a minute and 500
+    # a day, so 3.2 seconds apart keeps a margin under the per-minute cap. OSRM
+    # has no published cap and simply asks for gentleness.
+    limiter = RateLimiter(ORS_MIN_INTERVAL_S if ors_key else 1.1)
     cache_path = CACHE / "osrm_isochrone_cache.json"
     cache = read_json(cache_path, {}) or {}
 
@@ -332,8 +340,15 @@ def main() -> int:
     print(f"Subjects: {len(subjects)}"
           f"{' (the centre only; --all-candidates for every candidate)' if not args.all_candidates else ''}")
     if ors_key:
-        print(f"Method: openrouteservice — true isochrone polygons, one request per subject.")
-        print(f"About {len(subjects)} request(s) in total.\n")
+        mins = len(subjects) * ORS_MIN_INTERVAL_S / 60
+        print("Method: openrouteservice — true isochrone polygons, one request per subject.")
+        print(f"{len(subjects)} request(s), paced at one per {ORS_MIN_INTERVAL_S:g}s to stay "
+              f"under the free tier's 20 per minute. About {mins:.0f} minute(s).")
+        if len(subjects) > ORS_DAILY_QUOTA:
+            print(f"  ! {len(subjects)} subjects exceeds the free daily quota of "
+                  f"{ORS_DAILY_QUOTA}. Later ones will fail; split the run across days,"
+                  f" or narrow the candidate list.", file=sys.stderr)
+        print()
     else:
         probe, _, _ = build_grid(center[0], center[1], args.max_mi, args.spacing_km)
         per = -(-len(probe) // CHUNK)
