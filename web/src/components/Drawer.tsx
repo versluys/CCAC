@@ -45,6 +45,15 @@ export default function Drawer({ id, onClose, onChanged, notify }: Props) {
   const [noteText, setNoteText] = useState('');
   const [noteKind, setNoteKind] = useState<(typeof NOTE_KINDS)[number]>('note');
   const [showContact, setShowContact] = useState(false);
+  const [drive, setDrive] = useState<{
+    source: 'osrm' | 'proxy';
+    bands: Record<string, { share: number; count: number }>;
+    median_min: number | null;
+    mean_min: number | null;
+    households: number;
+    computed_at: string;
+  } | null>(null);
+  const [driveBusy, setDriveBusy] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -57,6 +66,27 @@ export default function Drawer({ id, onClose, onChanged, notify }: Props) {
       live = false;
     };
   }, [id, notify]);
+
+  useEffect(() => {
+    let live = true;
+    setDrive(null);
+    api.candidateDrive(id)
+      .then((d) => live && setDrive(d))
+      .catch(() => { /* the map panel already reports a routing failure */ });
+    return () => { live = false; };
+  }, [id]);
+
+  async function recomputeDrive() {
+    setDriveBusy(true);
+    try {
+      setDrive(await api.candidateDrive(id, true));
+      notify('Drive times recomputed');
+    } catch (e) {
+      notify((e as Error).message, true);
+    } finally {
+      setDriveBusy(false);
+    }
+  }
 
   async function patch(fields: Record<string, unknown>) {
     if (!data) return;
@@ -188,6 +218,63 @@ export default function Drawer({ id, onClose, onChanged, notify }: Props) {
             Screen band is 150–250 seats; 175–225 scores highest. Basis in use:{' '}
             <strong>{c.seats_basis}</strong>.
           </div>
+        </section>
+
+        <section>
+          <h3>
+            Drive from this building{' '}
+            {drive && (
+              <span className={drive.source === 'proxy' ? 'badge caution' : 'badge estimate'}>
+                {drive.source === 'proxy' ? 'straight-line estimate' : 'routed'}
+              </span>
+            )}
+          </h3>
+          {drive ? (
+            <>
+              <table>
+                <thead>
+                  <tr><th>Drive</th><th className="num">Households</th><th className="num">Share</th></tr>
+                </thead>
+                <tbody>
+                  {[15, 30, 45, 60].map((m) => {
+                    const b = drive.bands[String(m)];
+                    return (
+                      <tr key={m}>
+                        <td>within {m} min</td>
+                        <td className="num">{b?.count ?? '—'}</td>
+                        <td className="num">{b ? `${Math.round(b.share * 100)}%` : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr>
+                    <td>over an hour</td>
+                    <td className="num">{drive.households - (drive.bands['60']?.count ?? 0)}</td>
+                    <td className="num">
+                      {Math.round(((drive.households - (drive.bands['60']?.count ?? 0)) / Math.max(1, drive.households)) * 100)}%
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="tiny" style={{ marginTop: 6 }}>
+                Median {drive.median_min ?? '—'} min, mean {drive.mean_min ?? '—'} min, across{' '}
+                {drive.households} placed households. Out-of-state supporters and flagged
+                outliers are excluded, since they are not driving here on a Sunday.
+                {drive.source === 'osrm'
+                  ? ' Free-flow OSRM times; a Sunday morning is usually a little quicker.'
+                  : ' OSRM was unreachable, so these are straight-line estimates at 27 mph.'}
+              </div>
+              <div className="row" style={{ marginTop: 6 }}>
+                <span className="tiny">Computed {new Date(drive.computed_at).toLocaleString()}</span>
+                <span className="spacer" />
+                <button onClick={recomputeDrive} disabled={driveBusy}
+                  style={{ minHeight: 32, padding: '4px 10px' }}>
+                  Recompute
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="tiny">Routing the congregation to this building…</div>
+          )}
         </section>
 
         <section>

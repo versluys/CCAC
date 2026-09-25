@@ -45,6 +45,17 @@ export const api = {
 
   centroids: () => call<{ default_method: string | null; centroids: Centroid[] }>('/api/centroids'),
 
+  isochrones: () =>
+    call<{
+      type: 'FeatureCollection';
+      features: GeoJSON.Feature[];
+      center: { lat: number; lon: number; method: string } | null;
+      grid_spacing_km: number | null;
+      generated_at: string | null;
+      source: string | null;
+      caveat: string;
+    }>('/api/isochrones'),
+
   dataQuality: () => call<DataQuality>('/api/data-quality'),
 
   driveShare: (lat: number, lon: number) =>
@@ -72,6 +83,21 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
+
+  candidateDrive: (id: string, refresh = false) =>
+    call<{
+      candidate_id: string;
+      cached: boolean;
+      computed_at: string;
+      source: 'osrm' | 'proxy';
+      households: number;
+      minutes: Record<string, number | null>;
+      bands: Record<string, { share: number; count: number }>;
+      median_min: number | null;
+      mean_min: number | null;
+      bands_min: number[];
+      note?: string;
+    }>(`/api/candidates/${encodeURIComponent(id)}/drive${refresh ? '?refresh=1' : ''}`),
 
   addNote: (id: string, body: string, kind: string) =>
     call<{ note: Note }>(`/api/candidates/${encodeURIComponent(id)}/notes`, {

@@ -66,6 +66,51 @@ export async function centroids({ env }: RouteContext): Promise<Response> {
   return json({ default_method: chosen?.method ?? null, centroids: out });
 }
 
+/**
+ * Routed drive-time isochrones as a GeoJSON FeatureCollection.
+ *
+ * Empty until scripts/isochrones.py has run, and the map falls back to plainly
+ * labelled distance rings in that case rather than passing circles off as
+ * drive times.
+ */
+export async function isochrones({ env }: RouteContext): Promise<Response> {
+  const { results } = await env.DB.prepare(
+    'SELECT minutes, center_lat, center_lon, method, geojson, cells, grid_spacing_km, generated_at '
+    + 'FROM isochrones ORDER BY minutes',
+  ).all<{
+    minutes: number; center_lat: number; center_lon: number; method: string;
+    geojson: string; cells: number; grid_spacing_km: number; generated_at: string;
+  }>();
+
+  const features = [];
+  for (const r of results) {
+    let geometry: unknown;
+    try {
+      geometry = JSON.parse(r.geojson);
+    } catch {
+      continue;
+    }
+    features.push({
+      type: 'Feature' as const,
+      properties: { minutes: r.minutes, cells: r.cells },
+      geometry,
+    });
+  }
+  const first = results[0];
+  return json({
+    type: 'FeatureCollection',
+    features,
+    center: first ? { lat: first.center_lat, lon: first.center_lon, method: first.method } : null,
+    grid_spacing_km: first?.grid_spacing_km ?? null,
+    generated_at: first?.generated_at ?? null,
+    source: features.length ? 'OSRM driving profile over a sampled grid' : null,
+    caveat: features.length
+      ? 'Blocky at the grid spacing by design: each cell means a road there was reachable '
+        + 'within the band. Free-flow times, so a Sunday morning drive is usually a little faster.'
+      : 'Not computed yet. Run scripts/isochrones.py and re-seed.',
+  });
+}
+
 /** Drive-share for an arbitrary point, used when the centre selector moves. */
 export async function driveShare({ env, url }: RouteContext): Promise<Response> {
   const lat = Number(url.searchParams.get('lat'));

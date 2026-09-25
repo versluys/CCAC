@@ -43,6 +43,17 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [fatal, setFatal] = useState<string | null>(null);
   const [proxyBands, setProxyBands] = useState<Record<string, { share: number; count: number; total: number }> | null>(null);
+  const [isochrones, setIsochrones] = useState<GeoJSON.Feature[]>([]);
+  const [isoMeta, setIsoMeta] = useState<{ method: string | null; spacing: number | null; caveat: string } | null>(null);
+  const [driveMinutes, setDriveMinutes] = useState<Record<string, number | null> | null>(null);
+  const [driveInfo, setDriveInfo] = useState<{
+    source: 'osrm' | 'proxy';
+    bands: Record<string, { share: number; count: number }>;
+    median: number | null;
+    households: number;
+    name: string;
+  } | null>(null);
+  const [drivePending, setDrivePending] = useState(false);
   const [pickMode, setPickMode] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [layers, setLayers] = useState<Layers>({
@@ -68,6 +79,20 @@ export default function App() {
         setChosenMethod(cRes.default_method ?? cRes.centroids[0]?.method ?? '');
         setCandidates(candRes.candidates);
         setQuality(dqRes);
+
+        // Isochrones are optional: the pipeline step that produces them needs a
+        // routing service, so the map must work without them.
+        try {
+          const iso = await api.isochrones();
+          setIsochrones(iso.features);
+          setIsoMeta({
+            method: iso.center?.method ?? null,
+            spacing: iso.grid_spacing_km,
+            caveat: iso.caveat,
+          });
+        } catch {
+          setIsochrones([]);
+        }
       } catch (e) {
         const err = e as ApiError;
         setFatal(
@@ -122,6 +147,33 @@ export default function App() {
 
   const driveBands = routed?.bands ?? proxyBands;
   const driveSource: 'routed' | 'proxy' | null = routed ? 'routed' : proxyBands ? 'proxy' : null;
+
+  // Routed drive times from the selected candidate to every household. This is
+  // the question a building has to answer: if the parish moved here, how far
+  // would people drive? One OSRM table request covers the whole congregation,
+  // so it is computed on selection and cached server-side thereafter.
+  useEffect(() => {
+    if (!selected) { setDriveMinutes(null); setDriveInfo(null); return; }
+    const candidate = candidates.find((c) => c.id === selected);
+    let live = true;
+    setDrivePending(true);
+    api.candidateDrive(selected)
+      .then((d) => {
+        if (!live) return;
+        setDriveMinutes(d.minutes);
+        setDriveInfo({
+          source: d.source,
+          bands: d.bands,
+          median: d.median_min,
+          households: d.households,
+          name: candidate?.name ?? 'this candidate',
+        });
+      })
+      .catch(() => { if (live) { setDriveMinutes(null); setDriveInfo(null); } })
+      .finally(() => { if (live) setDrivePending(false); });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
 
   const replaceCandidate = useCallback((c: Candidate) => {
     setCandidates((prev) => prev.map((p) => (p.id === c.id ? c : p)));
@@ -221,6 +273,8 @@ export default function App() {
               centroids={centroids}
               candidates={candidates}
               center={center}
+              isochrones={isochrones}
+              driveMinutes={driveMinutes}
               layers={layers}
               onSelect={setSelected}
               pickMode={pickMode}
@@ -240,7 +294,9 @@ export default function App() {
                     ['households', 'Household points'],
                     ['centroids', 'Centroid markers'],
                     ['ring', '20-mile ring'],
-                    ['isochrones', '10/15/20-min distance rings'],
+                    ['isochrones', isochrones.length
+                      ? 'Drive-time isochrones (15/30/45/60 min)'
+                      : '15/30/45/60-min distance rings'],
                     ['candidates', 'Candidate churches'],
                   ] as [keyof Layers, string][]).map(([k, label]) => (
                     <label className="layer-row" key={k}>
@@ -277,15 +333,70 @@ export default function App() {
                   )}
 
                   {layers.isochrones && (
-                    <div className="tiny" style={{ marginTop: 6 }}>
-                      Those rings are circles of equal <em>distance</em>, sized at 27 mph. They
-                      are not isochrones: a real 20-minute reach follows the 91 and the 215 and
-                      looks nothing like a circle. Use them for scale, not for drive time.
-                    </div>
+                    isochrones.length ? (
+                      <div className="tiny" style={{ marginTop: 6 }}>
+                        <div className="row" style={{ gap: 6, marginBottom: 4 }}>
+                          {[15, 30, 45, 60].map((m, i) => (
+                            <span key={m}>
+                              <i className="dot" style={{
+                                background: ['#13475c', '#1f6f8f', '#4a9cba', '#8fc6d8'][i],
+                                borderRadius: 2,
+                              }} /> {m}m
+                            </span>
+                          ))}
+                        </div>
+                        Routed through OSRM
+                        {isoMeta?.spacing ? ` on a ${isoMeta.spacing} km grid` : ''}
+                        {isoMeta?.method ? ` from ${isoMeta.method}` : ''}. Edges are blocky at the
+                        grid spacing on purpose. Free-flow times, so a Sunday morning is usually
+                        a little quicker.
+                      </div>
+                    ) : (
+                      <div className="caveat" style={{ marginTop: 6, fontSize: 12 }}>
+                        These are circles of equal <em>distance</em>, sized at 27 mph, not
+                        isochrones. A real 20-minute reach follows the 91 and the 215 and looks
+                        nothing like a circle. Run <code>scripts/isochrones.py</code> and re-seed
+                        to replace them with routed shapes.
+                      </div>
+                    )
                   )}
 
+                  {driveInfo ? (
+                    <div className="tiny" style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                      <strong>Drive to {driveInfo.name}</strong>
+                      <div style={{ marginTop: 4 }}>
+                        {[15, 30, 45, 60].map((m, i) => {
+                          const b = driveInfo.bands[String(m)];
+                          return (
+                            <div key={m} className="row" style={{ gap: 6, justifyContent: 'space-between' }}>
+                              <span>
+                                <i className="dot" style={{ background: ['#13475c', '#1f6f8f', '#4a9cba', '#8fc6d8'][i] }} />
+                                {' '}within {m} min
+                              </span>
+                              <span>{b ? `${b.count} (${Math.round(b.share * 100)}%)` : '—'}</span>
+                            </div>
+                          );
+                        })}
+                        <div className="row" style={{ gap: 6, justifyContent: 'space-between', marginTop: 2 }}>
+                          <span><i className="dot" style={{ background: '#c9a227' }} /> over an hour</span>
+                          <span>
+                            {driveInfo.households - (driveInfo.bands['60']?.count ?? 0)}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 4 }}>
+                        Median {driveInfo.median ?? '—'} min across {driveInfo.households} households.{' '}
+                        {driveInfo.source === 'proxy'
+                          ? 'OSRM was unreachable, so these are straight-line estimates, not drive times.'
+                          : 'Routed through OSRM.'}
+                      </div>
+                    </div>
+                  ) : drivePending ? (
+                    <div className="tiny" style={{ marginTop: 10 }}>Routing the congregation to this candidate…</div>
+                  ) : null}
+
                   <div className="legend">
-                    <span><i className="dot" style={{ background: '#1f6f8f' }} /> donor household</span>
+                    {!driveInfo && <span><i className="dot" style={{ background: '#1f6f8f' }} /> donor household</span>}
                     <span><i className="dot" style={{ background: '#2f8f5b' }} /> attender card</span>
                     <span><i className="dot" style={{ background: '#a84d4d' }} /> outlier (excluded)</span>
                     {STATUS_ORDER.slice(0, 5).map((s) => (

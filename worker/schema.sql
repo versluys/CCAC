@@ -79,6 +79,36 @@ CREATE TABLE IF NOT EXISTS attenders_anon (
 
 CREATE TABLE IF NOT EXISTS centroids (method TEXT PRIMARY KEY, lat REAL, lon REAL, meta_json TEXT);
 
+-- Routed drive-time isochrones from the chosen centre, one row per minute
+-- band, each holding a GeoJSON geometry. These come from scripts/isochrones.py
+-- and are the real reachable areas; the map used to draw circles instead,
+-- which is a different and much friendlier claim than the roads support.
+CREATE TABLE IF NOT EXISTS isochrones (
+  minutes INTEGER PRIMARY KEY,
+  center_lat REAL, center_lon REAL, method TEXT,
+  geojson TEXT NOT NULL,
+  cells INTEGER,
+  grid_spacing_km REAL,
+  generated_at TEXT
+);
+
+-- Routed drive times from one candidate church to every placed household.
+--
+-- This is the question the committee actually asks of a building: if we lease
+-- this one, how far does the congregation drive? With a few dozen households a
+-- single OSRM table request answers it exactly, so this is cheap to compute and
+-- worth caching rather than approximating from a contour.
+CREATE TABLE IF NOT EXISTS candidate_drive (
+  candidate_id TEXT PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
+  computed_at TEXT NOT NULL,
+  source TEXT NOT NULL,            -- 'osrm' or 'proxy'
+  households INTEGER,
+  minutes_json TEXT NOT NULL,      -- { household_id: minutes }
+  bands_json TEXT NOT NULL,        -- { "15": {share, count}, ... }
+  median_min REAL,
+  mean_min REAL
+);
+
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 
 CREATE TABLE IF NOT EXISTS audit_log (

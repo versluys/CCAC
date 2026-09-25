@@ -30,6 +30,9 @@ interface Props {
   centroids: Centroid[];
   candidates: Candidate[];
   center: Centroid | null;
+  isochrones: GeoJSON.Feature[];
+  /** Drive minutes from the selected candidate to each household, by id. */
+  driveMinutes: Record<string, number | null> | null;
   layers: Layers;
   onSelect: (id: string) => void;
   onPickPoint?: (lat: number, lon: number) => void;
@@ -48,11 +51,22 @@ function circle(lat: number, lon: number, radiusMi: number, steps = 96) {
   return { type: 'Feature' as const, properties: {}, geometry: { type: 'Polygon' as const, coordinates: [coords] } };
 }
 
-// Straight-line rings standing in for drive-time isochrones. Labelled as
-// estimates in the legend, because at 27 mph a ring is not an isochrone and
-// pretending otherwise would be the single most misleading thing this map
-// could do.
+// Fallback only. Real isochrones come from scripts/isochrones.py via
+// /api/isochrones; these circles are drawn only when that has never run, and
+// the panel says plainly that they are distance, not drive time. At a flat
+// 27 mph a circle is not an isochrone, and passing one off as a drive time
+// would be the most misleading thing this map could do.
 const PROXY_MPH = 27;
+
+// 15 / 30 / 45 / 60 minutes, near to far. Darkest band is the one that matters
+// most, and each is translucent so the bands read as nested rather than
+// stacked opaque shapes.
+const ISO_BANDS: { minutes: number; color: string; opacity: number }[] = [
+  { minutes: 15, color: '#13475c', opacity: 0.30 },
+  { minutes: 30, color: '#1f6f8f', opacity: 0.22 },
+  { minutes: 45, color: '#4a9cba', opacity: 0.16 },
+  { minutes: 60, color: '#8fc6d8', opacity: 0.12 },
+];
 
 export default function MapView(props: Props) {
   const { households, attenders, centroids, candidates, center, layers, onSelect } = props;
@@ -97,18 +111,26 @@ export default function MapView(props: Props) {
       else map.addSource(id, { type: 'geojson', data });
     };
 
+    const dm = props.driveMinutes;
     const hhFeatures: GeoJSON.Feature[] = households
       .filter((h) => h.lat != null && h.lon != null)
       .map((h) => ({
         type: 'Feature',
-        properties: { id: h.id, zip: h.zip, outlier: h.outlier, corrected: h.corrected, kind: 'donor' },
+        properties: {
+          id: h.id, zip: h.zip, outlier: h.outlier, corrected: h.corrected, kind: 'donor',
+          // -1 means "not measured", which must not read as a short drive.
+          drive_min: dm ? (dm[h.id] ?? -1) : -1,
+        },
         geometry: { type: 'Point', coordinates: [h.lon!, h.lat!] },
       }));
     const attFeatures: GeoJSON.Feature[] = attenders
       .filter((a) => a.lat != null && a.lon != null)
       .map((a) => ({
         type: 'Feature',
-        properties: { id: a.id, zip: a.zip, outlier: 0, weight: a.household_size, kind: 'attender' },
+        properties: {
+          id: a.id, zip: a.zip, outlier: 0, weight: a.household_size, kind: 'attender',
+          drive_min: dm ? (dm[a.id] ?? -1) : -1,
+        },
         geometry: { type: 'Point', coordinates: [a.lon!, a.lat!] },
       }));
 
@@ -128,14 +150,19 @@ export default function MapView(props: Props) {
       features: center ? [circle(center.lat, center.lon, 20)] : [],
     });
 
+    // Real routed isochrones when the pipeline has produced them; plainly
+    // labelled distance circles when it has not.
+    const haveRouted = props.isochrones.length > 0;
     ensureSource('isochrones', {
       type: 'FeatureCollection',
-      features: center
-        ? [10, 15, 20].map((min) => ({
-            ...circle(center.lat, center.lon, (PROXY_MPH * min) / 60),
-            properties: { minutes: min },
-          }))
-        : [],
+      features: haveRouted
+        ? props.isochrones
+        : center
+          ? ISO_BANDS.map(({ minutes }) => ({
+              ...circle(center.lat, center.lon, (PROXY_MPH * minutes) / 60),
+              properties: { minutes },
+            }))
+          : [],
     });
 
     ensureSource('candidates', {
@@ -165,17 +192,27 @@ export default function MapView(props: Props) {
       if (!map.getLayer(layer.id)) map.addLayer(layer);
     };
 
+    // Heatmap tuning for a small, clustered set. With only a few dozen points
+    // spread over forty miles, a wide radius smears everything into one pale
+    // blob and the Riverside cluster stops reading at all. A tighter radius
+    // and higher intensity let the core show while single outlying households
+    // stay visible as faint marks rather than vanishing.
     add({
       id: 'hh-heat', type: 'heatmap', source: 'households',
       filter: ['==', ['get', 'outlier'], 0],
       paint: {
         'heatmap-weight': ['coalesce', ['get', 'weight'], 1],
-        'heatmap-intensity': 0.9,
-        'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 8, 18, 13, 42],
-        'heatmap-opacity': 0.55,
+        'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 7, 1.6, 10, 2.4, 14, 3.2],
+        'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 7, 12, 10, 22, 14, 46],
+        'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.75, 13, 0.6, 15, 0.35],
         'heatmap-color': [
           'interpolate', ['linear'], ['heatmap-density'],
-          0, 'rgba(0,0,0,0)', 0.2, 'rgba(120,180,210,0.5)', 0.5, 'rgba(60,140,180,0.7)', 1, 'rgba(20,90,130,0.85)',
+          0.00, 'rgba(0,0,0,0)',
+          0.12, 'rgba(173,216,230,0.45)',
+          0.30, 'rgba(95,179,212,0.62)',
+          0.50, 'rgba(31,111,143,0.75)',
+          0.72, 'rgba(19,71,92,0.85)',
+          1.00, 'rgba(10,42,56,0.92)',
         ],
       },
     });
@@ -184,25 +221,55 @@ export default function MapView(props: Props) {
       id: 'hh-points', type: 'circle', source: 'households',
       paint: {
         'circle-radius': ['case', ['==', ['get', 'kind'], 'attender'], 5, 4],
+        // When a candidate is selected its routed drive time takes over the
+        // colour, so the map answers "how far would everyone drive to THIS
+        // building" directly. Otherwise households keep their identity colours.
         'circle-color': [
           'case',
           ['==', ['get', 'outlier'], 1], '#a84d4d',
+          ['>=', ['get', 'drive_min'], 0],
+          [
+            'step', ['get', 'drive_min'],
+            '#13475c',   // within 15
+            15, '#1f6f8f',
+            30, '#4a9cba',
+            45, '#8fc6d8',
+            60, '#c9a227', // beyond an hour: nobody is making that on a Sunday
+          ],
           ['==', ['get', 'kind'], 'attender'], '#2f8f5b',
           '#1f6f8f',
         ],
-        'circle-opacity': 0.75,
+        'circle-opacity': 0.85,
         'circle-stroke-width': ['case', ['==', ['get', 'corrected'], 1], 2, 1],
         'circle-stroke-color': ['case', ['==', ['get', 'corrected'], 1], '#c08a2e', '#ffffff'],
       },
     });
 
+    // Draw furthest band first so nearer, darker bands sit on top.
+    const isoMatchColor: unknown[] = ['match', ['get', 'minutes']];
+    const isoMatchOpacity: unknown[] = ['match', ['get', 'minutes']];
+    for (const b of ISO_BANDS) {
+      isoMatchColor.push(b.minutes, b.color);
+      isoMatchOpacity.push(b.minutes, b.opacity);
+    }
+    isoMatchColor.push('#1f6f8f');
+    isoMatchOpacity.push(0.14);
+
     add({
-      id: 'iso-fill', type: 'line', source: 'isochrones',
+      id: 'iso-fill', type: 'fill', source: 'isochrones',
       paint: {
-        'line-color': '#1f6f8f',
-        'line-width': 1,
-        'line-dasharray': [3, 3],
-        'line-opacity': 0.6,
+        'fill-color': isoMatchColor as unknown as maplibregl.ExpressionSpecification,
+        'fill-opacity': isoMatchOpacity as unknown as maplibregl.ExpressionSpecification,
+      },
+    });
+    add({
+      id: 'iso-outline', type: 'line', source: 'isochrones',
+      paint: {
+        'line-color': isoMatchColor as unknown as maplibregl.ExpressionSpecification,
+        'line-width': 1.2,
+        'line-opacity': 0.75,
+        // Dashes signal an estimate; routed isochrones are drawn solid.
+        ...(props.isochrones.length ? {} : { 'line-dasharray': [3, 3] as [number, number] }),
       },
     });
 
@@ -241,7 +308,7 @@ export default function MapView(props: Props) {
       },
       paint: { 'text-color': '#5f5a52', 'text-halo-color': '#fff', 'text-halo-width': 1.5 },
     });
-  }, [ready, households, attenders, centroids, candidates, center]);
+  }, [ready, households, attenders, centroids, candidates, center, props.isochrones, props.driveMinutes]);
 
   // --- layer visibility ---------------------------------------------------
   useEffect(() => {

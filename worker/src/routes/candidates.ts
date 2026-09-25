@@ -1,7 +1,8 @@
 /** /api/candidates — the outreach pipeline itself. */
 
-import { audit, driveShareWithin, getGrowth, getScreen, getWeights } from '../db';
+import { audit, driveShareWithin, getGrowth, getScreen, getWeights, haversineMi, PROXY_MPH } from '../db';
 import { error, json, readJson, type RouteContext } from '../http';
+import { DRIVE_BANDS, driveMinutesFrom, summarise } from '../osrm';
 import { growthProjection, scoreCandidate, seatsForProjection } from '../scoring';
 
 const STATUSES = [
@@ -242,6 +243,127 @@ export async function patchCandidate({ env, request, params, identity }: RouteCo
 
   await audit(db, identity.email, 'update', `candidate:${params.id}`, applied);
   return json({ candidate: { ...decorated, fit_score: decorated.fit_score }, rejected });
+}
+
+/**
+ * Routed drive times from one candidate to every placed household.
+ *
+ * This answers the question the committee actually asks of a building: if we
+ * lease this one, how far does the congregation drive? A few dozen households
+ * is a single OSRM table request, so the answer is exact rather than read off a
+ * contour, and it is cached so a candidate is only ever routed once.
+ *
+ * It also fills share_hh_within_20min, which the pipeline leaves empty for
+ * discovered churches. Until it is filled, the heaviest scoring weight
+ * contributes nothing to any candidate's score.
+ */
+export async function candidateDrive({ env, params, url, identity }: RouteContext): Promise<Response> {
+  const db = env.DB;
+  const cand = await db
+    .prepare('SELECT id, name, lat, lon FROM candidates WHERE id = ?')
+    .bind(params.id)
+    .first<{ id: string; name: string; lat: number; lon: number }>();
+  if (!cand) return error('no such candidate', 404);
+
+  const refresh = url.searchParams.get('refresh') === '1';
+  if (!refresh) {
+    const cached = await db
+      .prepare('SELECT * FROM candidate_drive WHERE candidate_id = ?')
+      .bind(params.id)
+      .first<{
+        computed_at: string; source: string; households: number;
+        minutes_json: string; bands_json: string; median_min: number; mean_min: number;
+      }>();
+    if (cached) {
+      return json({
+        candidate_id: params.id,
+        cached: true,
+        computed_at: cached.computed_at,
+        source: cached.source,
+        households: cached.households,
+        minutes: JSON.parse(cached.minutes_json),
+        bands: JSON.parse(cached.bands_json),
+        median_min: cached.median_min,
+        mean_min: cached.mean_min,
+        bands_min: DRIVE_BANDS,
+      });
+    }
+  }
+
+  // Out-of-state supporters cannot drive to a Sunday service, and flagged
+  // outliers are excluded from the centre, so neither belongs in this measure.
+  const { results: hh } = await db
+    .prepare(
+      'SELECT id, lat, lon FROM households_anon '
+      + 'WHERE lat IS NOT NULL AND in_state = 1 AND outlier = 0 ORDER BY id',
+    )
+    .all<{ id: string; lat: number; lon: number }>();
+  if (hh.length === 0) return error('no placed households to measure against', 409);
+
+  const routed = await driveMinutesFrom(
+    { lat: cand.lat, lon: cand.lon },
+    hh.map((h) => ({ lat: h.lat, lon: h.lon })),
+  );
+
+  let minutes: (number | null)[];
+  let source: 'osrm' | 'proxy';
+  if (routed) {
+    minutes = routed.minutes;
+    source = 'osrm';
+  } else {
+    // Fall back rather than fail, but say which it is, every time. A proxy
+    // figure presented as a drive time is worse than no figure.
+    minutes = hh.map((h) => {
+      const mi = haversineMi(cand.lat, cand.lon, h.lat, h.lon);
+      return Math.round((mi / PROXY_MPH) * 60 * 10) / 10;
+    });
+    source = 'proxy';
+  }
+
+  const summary = summarise(minutes);
+  const byId: Record<string, number | null> = {};
+  hh.forEach((h, i) => { byId[h.id] = minutes[i] ?? null; });
+
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      'INSERT INTO candidate_drive (candidate_id, computed_at, source, households, minutes_json, '
+      + 'bands_json, median_min, mean_min) VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
+      + 'ON CONFLICT(candidate_id) DO UPDATE SET computed_at = excluded.computed_at, '
+      + 'source = excluded.source, households = excluded.households, '
+      + 'minutes_json = excluded.minutes_json, bands_json = excluded.bands_json, '
+      + 'median_min = excluded.median_min, mean_min = excluded.mean_min',
+    )
+    .bind(params.id, now, source, hh.length, JSON.stringify(byId),
+          JSON.stringify(summary.bands), summary.median_min, summary.mean_min)
+    .run();
+
+  // Keep the 20-minute share in step so the scoring weight has real input.
+  const within20 = minutes.filter((m): m is number => m != null && m <= 20).length / hh.length;
+  const drive20 = Math.round(within20 * 10000) / 10000;
+  await db
+    .prepare('UPDATE candidates SET share_hh_within_20min = ?, drive_min_from_center = COALESCE(drive_min_from_center, ?) WHERE id = ?')
+    .bind(drive20, summary.median_min, params.id)
+    .run();
+
+  await audit(db, identity.email, 'drive', `candidate:${params.id}`, { source, households: hh.length });
+
+  return json({
+    candidate_id: params.id,
+    cached: false,
+    computed_at: now,
+    source,
+    households: hh.length,
+    minutes: byId,
+    bands: summary.bands,
+    median_min: summary.median_min,
+    mean_min: summary.mean_min,
+    unreachable: summary.unreachable,
+    bands_min: DRIVE_BANDS,
+    note: source === 'proxy'
+      ? 'OSRM was unreachable, so these are straight-line estimates at 27 mph, not drive times.'
+      : 'Routed drive times from OSRM, free-flow. A Sunday morning is usually a little quicker.',
+  });
 }
 
 export async function addNote({ env, request, params, identity }: RouteContext): Promise<Response> {

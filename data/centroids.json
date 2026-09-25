@@ -6,7 +6,9 @@
     10,
     15,
     20,
-    30
+    30,
+    45,
+    60
   ],
   "centroids": {
     "mean_all": {
@@ -24,6 +26,10 @@
         "within_20min_count": 16,
         "within_30min": 0.5385,
         "within_30min_count": 21,
+        "within_45min": 0.6923,
+        "within_45min_count": 27,
+        "within_60min": 0.7692,
+        "within_60min_count": 30,
         "mean_min": 43.64,
         "median_min": 25.39
       },
@@ -45,6 +51,10 @@
         "within_20min_count": 17,
         "within_30min": 0.5128,
         "within_30min_count": 20,
+        "within_45min": 0.6923,
+        "within_45min_count": 27,
+        "within_60min": 0.7949,
+        "within_60min_count": 31,
         "mean_min": 41.93,
         "median_min": 28.52
       },
@@ -65,6 +75,10 @@
         "within_20min_count": 16,
         "within_30min": 0.5897,
         "within_30min_count": 23,
+        "within_45min": 0.6923,
+        "within_45min_count": 27,
+        "within_60min": 0.7692,
+        "within_60min_count": 30,
         "mean_min": 41.64,
         "median_min": 26.46
       },

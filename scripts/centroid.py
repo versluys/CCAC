@@ -44,7 +44,10 @@ from common import (
 )
 
 OSRM_BASE = "https://router.project-osrm.org"
-DRIVE_BANDS_MIN = [10, 15, 20, 30]
+# 20 stays because the scoring weight is defined on "share within 20 minutes".
+# 45 and 60 are here so the figures line up with the isochrone bands drawn on
+# the map, rather than the panel and the map quoting different thresholds.
+DRIVE_BANDS_MIN = [10, 15, 20, 30, 45, 60]
 
 # Used only when OSRM is unreachable: a blunt straight-line-to-minutes proxy
 # for inland Riverside County arterials. Labelled as an estimate everywhere
@@ -313,12 +316,13 @@ def main() -> int:
             f"{stats['within_15min']*100:.0f}%",
             f"{stats['within_20min']*100:.0f}%",
             f"{stats['within_30min']*100:.0f}%",
+            f"{stats['within_60min']*100:.0f}%",
             stats["median_min"],
         ])
     print_table(
         f"Centroid methods (* = default; drive stats from {'OSRM' if osrm_ok else 'STRAIGHT-LINE PROXY, not real drive times'})",
         rows,
-        ["method", "lat, lon", "n", "<=10min", "<=15min", "<=20min", "<=30min", "median min"],
+        ["method", "lat, lon", "n", "<=10min", "<=15min", "<=20min", "<=30min", "<=60min", "median min"],
     )
 
     write_json(DATA / "centroids.json", {
