@@ -42,7 +42,7 @@ export default function App() {
   const [toast, setToast] = useState<{ msg: string; bad: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [fatal, setFatal] = useState<string | null>(null);
-  const [driveBands, setDriveBands] = useState<Record<string, { share: number; count: number; total: number }> | null>(null);
+  const [proxyBands, setProxyBands] = useState<Record<string, { share: number; count: number; total: number }> | null>(null);
   const [pickMode, setPickMode] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [layers, setLayers] = useState<Layers>({
@@ -84,15 +84,44 @@ export default function App() {
     [centroids, chosenMethod],
   );
 
-  // Drive-band figures follow the chosen centre.
+  // Drive bands, and where they came from.
+  //
+  // centroid.py routes real drive times through OSRM and stores the result
+  // with each centroid. Those are the numbers the committee saw in the
+  // terminal and the ones that should appear here. The Worker's own
+  // /api/drive-share is a straight-line proxy at a flat 27 mph; it exists only
+  // for a point the pipeline never measured, such as a candidate added by hand
+  // on the map. Showing the proxy when routed figures exist would quietly
+  // contradict the pipeline, which is how this looked wrong in the first place.
+  const routed = useMemo(() => {
+    const ds = center?.drive_stats;
+    if (!ds || typeof ds.within_20min !== 'number') return null;
+    const total = center?.n ?? 0;
+    const bands: Record<string, { share: number; count: number; total: number }> = {};
+    for (const m of [10, 15, 20, 30]) {
+      const share = ds[`within_${m}min`];
+      if (typeof share !== 'number') return null;
+      bands[String(m)] = {
+        share,
+        count: ds[`within_${m}min_count`] ?? Math.round(share * total),
+        total,
+      };
+    }
+    return { bands, medianMin: ds.median_min, meanMin: ds.mean_min };
+  }, [center]);
+
+  // Only ask the Worker for a proxy when there is nothing routed to show.
   useEffect(() => {
-    if (!center) return;
+    if (!center || routed) { setProxyBands(null); return; }
     let live = true;
     api.driveShare(center.lat, center.lon)
-      .then((r) => live && setDriveBands(r.bands))
-      .catch(() => live && setDriveBands(null));
+      .then((r) => live && setProxyBands(r.bands))
+      .catch(() => live && setProxyBands(null));
     return () => { live = false; };
-  }, [center]);
+  }, [center, routed]);
+
+  const driveBands = routed?.bands ?? proxyBands;
+  const driveSource: 'routed' | 'proxy' | null = routed ? 'routed' : proxyBands ? 'proxy' : null;
 
   const replaceCandidate = useCallback((c: Candidate) => {
     setCandidates((prev) => prev.map((p) => (p.id === c.id ? c : p)));
@@ -162,7 +191,13 @@ export default function App() {
           <Kpi v={`${placed} of ${households.length}`} l="Households placed"
                sub={`${households.length - placed} have no address on file`} />
           <Kpi v={within20 ? `${Math.round(within20.share * 100)}%` : '—'} l="Within 20 min of centre"
-               sub={within20 ? `${within20.count} of ${within20.total} · estimate` : 'not computed'} />
+               sub={
+                 within20
+                   ? `${within20.count} of ${within20.total} · ${
+                       driveSource === 'routed' ? 'routed drive time' : 'straight-line estimate'
+                     }`
+                   : 'not computed'
+               } />
           <Kpi v={candidates.length} l="Candidates found"
                sub={candidates.length === 0 ? 'run churches.py' : 'within 20 miles'} />
           <Kpi v={likely} l="Likely 200+" sub="estimated, unconfirmed" />
@@ -205,7 +240,7 @@ export default function App() {
                     ['households', 'Household points'],
                     ['centroids', 'Centroid markers'],
                     ['ring', '20-mile ring'],
-                    ['isochrones', '10/15/20-min rings (estimate)'],
+                    ['isochrones', '10/15/20-min distance rings'],
                     ['candidates', 'Candidate churches'],
                   ] as [keyof Layers, string][]).map(([k, label]) => (
                     <label className="layer-row" key={k}>
@@ -228,7 +263,24 @@ export default function App() {
                       Households within: {[10, 15, 20, 30].map((m) => (
                         <span key={m}>{m}m {Math.round((driveBands[String(m)]?.share ?? 0) * 100)}% </span>
                       ))}
-                      <div>Straight-line estimate at 27 mph, not a routed drive time.</div>
+                      <div>
+                        {driveSource === 'routed' ? (
+                          <>
+                            Routed drive times from OSRM.
+                            {routed?.medianMin != null && <> Median drive {routed.medianMin} min.</>}
+                          </>
+                        ) : (
+                          <>Straight-line estimate at 27 mph. Run centroid.py to route these properly.</>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {layers.isochrones && (
+                    <div className="tiny" style={{ marginTop: 6 }}>
+                      Those rings are circles of equal <em>distance</em>, sized at 27 mph. They
+                      are not isochrones: a real 20-minute reach follows the 91 and the 215 and
+                      looks nothing like a circle. Use them for scale, not for drive time.
                     </div>
                   )}
 

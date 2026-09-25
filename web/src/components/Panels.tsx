@@ -69,25 +69,61 @@ export function DataQualityPanel({
 
       <div className="panel">
         <h2>Centroid methods</h2>
+        <p className="muted">
+          The same table <code>centroid.py</code> prints. If a figure here disagrees with the
+          terminal, the database has not been re-seeded since the pipeline last ran.
+        </p>
         <table>
-          <thead><tr><th>Method</th><th>Position</th><th className="num">Points</th><th>Note</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Method</th><th>Position</th><th className="num">Pts</th>
+              <th className="num">≤10m</th><th className="num">≤15m</th>
+              <th className="num">≤20m</th><th className="num">≤30m</th>
+              <th className="num">Median</th>
+            </tr>
+          </thead>
           <tbody>
-            {centroids.map((c) => (
-              <tr key={c.method} style={{ fontWeight: c.method === chosen?.method ? 600 : 400 }}>
-                <td className="mono">{c.method}{c.method === chosen?.method ? ' ★' : ''}</td>
-                <td className="mono">{c.lat.toFixed(4)}, {c.lon.toFixed(4)}</td>
-                <td className="num">{c.n ?? '—'}</td>
-                <td className="tiny">{c.note ?? ''}</td>
-              </tr>
-            ))}
+            {centroids.map((c) => {
+              const ds = c.drive_stats ?? {};
+              const pct = (k: string) =>
+                typeof ds[k] === 'number' ? `${Math.round(ds[k] * 100)}%` : '—';
+              return (
+                <tr key={c.method} style={{ fontWeight: c.method === chosen?.method ? 600 : 400 }}>
+                  <td className="mono">{c.method}{c.method === chosen?.method ? ' ★' : ''}</td>
+                  <td className="mono">{c.lat.toFixed(4)}, {c.lon.toFixed(4)}</td>
+                  <td className="num">{c.n ?? '—'}</td>
+                  <td className="num">{pct('within_10min')}</td>
+                  <td className="num">{pct('within_15min')}</td>
+                  <td className="num">{pct('within_20min')}</td>
+                  <td className="num">{pct('within_30min')}</td>
+                  <td className="num">{ds.median_min ?? '—'}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-        {!centroids.some((c) => c.method === 'drive_time_median') && (
+        {(() => {
+          const sources = [...new Set(centroids.map((c) => c.drive_stats_source).filter(Boolean))];
+          const anyProxy = sources.some((x) => (x ?? '').includes('proxy'));
+          return (
+            <div className={anyProxy ? 'caveat' : 'tiny'} style={{ marginTop: 8 }}>
+              {anyProxy ? (
+                <>
+                  <strong>These are straight-line estimates, not drive times.</strong> A circle at
+                  27 mph is not a 20-minute reach in a county shaped by the 91, the 215 and the 60.
+                  Re-run <code>centroid.py</code> from a machine that can reach OSRM, then re-seed.
+                </>
+              ) : (
+                <>Drive figures are routed through OSRM. Source: {sources.join(', ') || 'unknown'}.</>
+              )}
+            </div>
+          );
+        })()}
+        {!centroids.some((c) => c.method.startsWith('drive_time')) && (
           <div className="tiny" style={{ marginTop: 8 }}>
-            The drive-time median is missing. It needs a routing service, so run{' '}
-            <code>scripts/centroid.py</code> from a machine that can reach OSRM and re-seed.
-            Until then the geometric median stands in, and the drive-band figures on this
-            site are straight-line estimates rather than routed drive times.
+            No routed centre is present. Both drive-time methods need a routing service, so
+            run <code>scripts/centroid.py</code> from a machine that can reach OSRM and re-seed.
+            Until then the geometric median stands in.
           </div>
         )}
       </div>
