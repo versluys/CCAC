@@ -39,6 +39,14 @@ RESULTS: list[tuple[str, str, str, str]] = []  # level, title, detail, remedy
 # reported as a note rather than a failure.
 STAGE = "all"
 
+# True while running the checks that look at pipeline output. Before a run,
+# those cannot fail in any useful sense: stale output, a missing seed and a
+# stage ordering that has not happened yet are precisely what the run is about
+# to fix, and blocking on them means the pipeline can never repair itself.
+# Only the environment, the inputs, the network and the privacy boundary are
+# real blockers beforehand.
+SOFT = False
+
 
 def pending(title, detail, remedy=""):
     """Missing output: a failure after a run, merely the starting state before one."""
@@ -53,11 +61,17 @@ def ok(title, detail=""):
 
 
 def warn(title, detail, remedy=""):
-    RESULTS.append(("WARN", title, detail, remedy))
+    if SOFT:
+        RESULTS.append(("....", title, detail, ""))
+    else:
+        RESULTS.append(("WARN", title, detail, remedy))
 
 
 def fail(title, detail, remedy=""):
-    RESULTS.append(("FAIL", title, detail, remedy))
+    if SOFT:
+        RESULTS.append(("....", title, detail + " — the run will produce this", ""))
+    else:
+        RESULTS.append(("FAIL", title, detail, remedy))
 
 
 def age(path: pathlib.Path) -> str:
@@ -364,20 +378,27 @@ def main() -> int:
     label = {"pre": " — before the run", "post": " — after the run", "all": ""}[STAGE]
     print(f"Christ's Chapel Site Finder — preflight{label}\n")
 
-    checks = [check_location, check_deps, check_inputs, check_network, check_privacy]
-    if STAGE != "pre":
-        checks += [check_radius, check_order, check_centroids, check_scoring,
-                   check_examples, check_seed]
-    else:
-        # Still worth showing, so a first run knows what it is about to build.
-        checks += [check_radius, check_order, check_centroids, check_scoring,
-                   check_examples, check_seed]
+    # Blockers: things the pipeline cannot fix by running.
+    blocking = [check_location, check_deps, check_inputs, check_network, check_privacy]
+    # Output: things the pipeline produces, so before a run they are a status
+    # report rather than a verdict.
+    output = [check_radius, check_order, check_centroids, check_scoring,
+              check_examples, check_seed]
 
-    for fn in checks:
+    global SOFT
+    for fn in blocking:
         try:
             fn()
         except Exception as exc:
             warn(f"Check {fn.__name__} could not run", f"{type(exc).__name__}: {exc}", "")
+
+    SOFT = STAGE == "pre"
+    for fn in output:
+        try:
+            fn()
+        except Exception as exc:
+            warn(f"Check {fn.__name__} could not run", f"{type(exc).__name__}: {exc}", "")
+    SOFT = False
 
     width = max(len(t) for _, t, _, _ in RESULTS) + 2
     for level, title, detail, remedy in RESULTS:
@@ -396,10 +417,14 @@ def main() -> int:
         parts.append(f"{todo} not run yet")
     print(f"\n{len(RESULTS)} checks: " + ", ".join(parts))
 
-    if fails:
+    if fails and STAGE == "pre":
+        print("\nThese must be fixed before the pipeline can run at all: tools, inputs,"
+              "\nnetwork, or the privacy boundary. Nothing the run itself can repair.")
+    elif fails:
         print("\nFix the FAILs before trusting any number in the dashboard.")
     elif todo and STAGE == "pre":
-        print("\nReady to run. The items marked '...' are what the pipeline is about to produce.")
+        print("\nReady to run. The items marked '...' are what the pipeline is about to"
+              "\nproduce or refresh.")
     elif warns:
         print("\nNothing is broken. The warnings are places the answer is weaker than it could be.")
     else:
