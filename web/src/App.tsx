@@ -10,7 +10,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from './api';
-import MapView, { type Layers } from './components/MapView';
+import MapView, { DRIVE_COLORS, type Layers } from './components/MapView';
+import DriveHistogram from './components/DriveHistogram';
+import AddCandidate from './components/AddCandidate';
 import Drawer from './components/Drawer';
 import TableView from './components/TableView';
 import PipelineView from './components/PipelineView';
@@ -56,6 +58,8 @@ export default function App() {
   const [drivePending, setDrivePending] = useState(false);
   const [radiusMi, setRadiusMi] = useState(40);
   const [pickMode, setPickMode] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addSeed, setAddSeed] = useState<{ lat: number; lon: number } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [layers, setLayers] = useState<Layers>({
     heatmap: true, households: true, centroids: true, ring: true, isochrones: false, candidates: true,
@@ -153,6 +157,29 @@ export default function App() {
     return () => { live = false; };
   }, [center, routed]);
 
+  // The stored centroid figures are cumulative shares, not per-household
+  // minutes. Differencing adjacent bands recovers the bucket counts, which is
+  // all the histogram needs; each synthetic value sits inside its own bucket.
+  const centroidMinutes = useMemo(() => {
+    const bands = routed?.bands ?? proxyBands;
+    if (!bands) return null;
+    const edges = [15, 30, 45, 60];
+    const total = Object.values(bands)[0]?.total ?? 0;
+    if (!total) return null;
+    const cum = (m: number) => bands[String(m)]?.count ?? null;
+    if (edges.some((m) => cum(m) == null)) return null;
+    const mins: number[] = [];
+    let prev = 0;
+    edges.forEach((edge, i) => {
+      const n = (cum(edge) ?? 0) - prev;
+      prev = cum(edge) ?? 0;
+      const mid = i === 0 ? edge / 2 : (edges[i - 1] + edge) / 2;
+      for (let k = 0; k < Math.max(0, n); k++) mins.push(mid);
+    });
+    for (let k = 0; k < Math.max(0, total - prev); k++) mins.push(edges[edges.length - 1] + 5);
+    return { minutes: mins, total, source: (routed ? 'osrm' : 'proxy') as 'osrm' | 'proxy' };
+  }, [routed, proxyBands]);
+
   const driveBands = routed?.bands ?? proxyBands;
   const driveSource: 'routed' | 'proxy' | null = routed ? 'routed' : proxyBands ? 'proxy' : null;
 
@@ -207,15 +234,20 @@ export default function App() {
     );
   }, [notify, replaceCandidate]);
 
-  const addManual = useCallback(async (lat: number, lon: number) => {
+  // Clicking the map seeds the form rather than firing a bare prompt: the
+  // coordinates are the easy part, and everything else worth recording needs
+  // somewhere to go.
+  const addManual = useCallback((lat: number, lon: number) => {
     setPickMode(false);
-    const name = window.prompt('Name of the church or building:');
-    if (!name?.trim()) return;
+    setAddSeed({ lat, lon });
+    setAddOpen(true);
+  }, []);
+
+  const afterAdd = useCallback(async (ids: string[]) => {
     try {
-      const { candidate } = await api.createCandidate({ name: name.trim(), lat, lon });
-      setCandidates((prev) => [...prev, candidate]);
-      setSelected(candidate.id);
-      notify('Candidate added');
+      const fresh = await api.candidates();
+      setCandidates(fresh.candidates);
+      if (ids.length === 1) setSelected(ids[0]);
     } catch (e) {
       notify((e as Error).message, true);
     }
@@ -247,6 +279,15 @@ export default function App() {
           <span className="who">{email}</span>
         </div>
 
+        {candidates.some((c) => c.is_example) && (
+          <div className="caveat" style={{ margin: 0, padding: '6px 10px', fontSize: 12 }}>
+            <strong>{candidates.filter((c) => c.is_example).length} of these candidates are
+            fictional examples</strong>, named after places in Narnia so they cannot be
+            mistaken for real churches. They exist to demonstrate the tool. Remove them with{' '}
+            <code>scripts/make_examples.py --clear</code>, then re-seed.
+          </div>
+        )}
+
         <div className="kpis">
           <Kpi v={`${placed} of ${households.length}`} l="Households placed"
                sub={`${households.length - placed} have no address on file`} />
@@ -269,6 +310,10 @@ export default function App() {
           {TABS.map((t) => (
             <button key={t.id} aria-pressed={tab === t.id} onClick={() => setTab(t.id)}>{t.label}</button>
           ))}
+          <span className="spacer" />
+          <button className="primary" onClick={() => { setAddSeed(null); setAddOpen(true); }}>
+            + Add candidate
+          </button>
         </nav>
       </header>
 
@@ -347,10 +392,7 @@ export default function App() {
                         <div className="row" style={{ gap: 6, marginBottom: 4 }}>
                           {[15, 30, 45, 60].map((m, i) => (
                             <span key={m}>
-                              <i className="dot" style={{
-                                background: ['#13475c', '#1f6f8f', '#4a9cba', '#8fc6d8'][i],
-                                borderRadius: 2,
-                              }} /> {m}m
+                              <i className="dot" style={{ background: DRIVE_COLORS[i], borderRadius: 2 }} /> {m}m
                             </span>
                           ))}
                         </div>
@@ -370,42 +412,26 @@ export default function App() {
                     )
                   )}
 
-                  {driveInfo ? (
-                    <div className="tiny" style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-                      <strong>Drive to {driveInfo.name}</strong>
-                      <div style={{ marginTop: 4 }}>
-                        {[15, 30, 45, 60].map((m, i) => {
-                          const b = driveInfo.bands[String(m)];
-                          return (
-                            <div key={m} className="row" style={{ gap: 6, justifyContent: 'space-between' }}>
-                              <span>
-                                <i className="dot" style={{ background: ['#13475c', '#1f6f8f', '#4a9cba', '#8fc6d8'][i] }} />
-                                {' '}within {m} min
-                              </span>
-                              <span>{b ? `${b.count} (${Math.round(b.share * 100)}%)` : '—'}</span>
-                            </div>
-                          );
-                        })}
-                        <div className="row" style={{ gap: 6, justifyContent: 'space-between', marginTop: 2 }}>
-                          <span><i className="dot" style={{ background: '#c9a227' }} /> over an hour</span>
-                          <span>
-                            {driveInfo.households - (driveInfo.bands['60']?.count ?? 0)}
-                          </span>
-                        </div>
-                      </div>
-                      <div style={{ marginTop: 4 }}>
-                        Median {driveInfo.median ?? '—'} min across {driveInfo.households} households.{' '}
-                        {driveInfo.source === 'proxy'
-                          ? 'OSRM was unreachable, so these are straight-line estimates, not drive times.'
-                          : 'Routed through OSRM.'}
-                      </div>
-                    </div>
+                  {driveMinutes && driveInfo ? (
+                    <DriveHistogram
+                      minutes={Object.values(driveMinutes)}
+                      total={driveInfo.households}
+                      source={driveInfo.source}
+                      subject={driveInfo.name}
+                    />
+                  ) : centroidMinutes ? (
+                    <DriveHistogram
+                      minutes={centroidMinutes.minutes}
+                      total={centroidMinutes.total}
+                      source={centroidMinutes.source}
+                      subject={`the ${center?.method ?? 'chosen'} centre`}
+                    />
                   ) : drivePending ? (
                     <div className="tiny" style={{ marginTop: 10 }}>Routing the congregation to this candidate…</div>
                   ) : null}
 
                   <div className="legend">
-                    {!driveInfo && <span><i className="dot" style={{ background: '#1f6f8f' }} /> donor household</span>}
+                    {!driveInfo && <span><i className="dot" style={{ background: DRIVE_COLORS[1] }} /> donor household</span>}
                     <span><i className="dot" style={{ background: '#2f8f5b' }} /> attender card</span>
                     <span><i className="dot" style={{ background: '#a84d4d' }} /> outlier (excluded)</span>
                     {STATUS_ORDER.slice(0, 5).map((s) => (
@@ -413,9 +439,13 @@ export default function App() {
                     ))}
                   </div>
 
-                  <button style={{ marginTop: 10, width: '100%' }} aria-pressed={pickMode}
+                  <button style={{ marginTop: 10, width: '100%' }} className="primary"
+                    onClick={() => { setAddSeed(null); setAddOpen(true); }}>
+                    Add a candidate
+                  </button>
+                  <button style={{ marginTop: 6, width: '100%' }} aria-pressed={pickMode}
                     onClick={() => setPickMode((v) => !v)}>
-                    {pickMode ? 'Tap the map to place it…' : 'Add a candidate by hand'}
+                    {pickMode ? 'Tap the map to place it…' : 'Add by clicking the map'}
                   </button>
                 </>
               )}
@@ -460,6 +490,15 @@ export default function App() {
           <div className="pane"><SettingsPanel notify={notify} /></div>
         )}
       </main>
+
+      {addOpen && (
+        <AddCandidate
+          seed={addSeed}
+          notify={notify}
+          onAdded={afterAdd}
+          onClose={() => { setAddOpen(false); setAddSeed(null); }}
+        />
+      )}
 
       {toast && <div className={`toast${toast.bad ? ' bad' : ''}`}>{toast.msg}</div>}
     </div>

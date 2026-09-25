@@ -63,11 +63,16 @@ const PROXY_MPH = 27;
 // 15 / 30 / 45 / 60 minutes, near to far. Darkest band is the one that matters
 // most, and each is translucent so the bands read as nested rather than
 // stacked opaque shapes.
+// Shared with the histogram, so one legend covers both. Values mirror the
+// --drive-* tokens; MapLibre paint cannot read CSS custom properties.
+export const DRIVE_COLORS = ['#103d52', '#2b7f9f', '#74bdd3', '#cbe8f2'] as const;
+export const DRIVE_OVER_COLOR = '#a84d4d';
+
 const ISO_BANDS: { minutes: number; color: string; opacity: number }[] = [
-  { minutes: 15, color: '#13475c', opacity: 0.30 },
-  { minutes: 30, color: '#1f6f8f', opacity: 0.22 },
-  { minutes: 45, color: '#4a9cba', opacity: 0.16 },
-  { minutes: 60, color: '#8fc6d8', opacity: 0.12 },
+  { minutes: 15, color: DRIVE_COLORS[0], opacity: 0.30 },
+  { minutes: 30, color: DRIVE_COLORS[1], opacity: 0.22 },
+  { minutes: 45, color: DRIVE_COLORS[2], opacity: 0.16 },
+  { minutes: 60, color: DRIVE_COLORS[3], opacity: 0.12 },
 ];
 
 export default function MapView(props: Props) {
@@ -232,11 +237,11 @@ export default function MapView(props: Props) {
           ['>=', ['get', 'drive_min'], 0],
           [
             'step', ['get', 'drive_min'],
-            '#13475c',   // within 15
-            15, '#1f6f8f',
-            30, '#4a9cba',
-            45, '#8fc6d8',
-            60, '#c9a227', // beyond an hour: nobody is making that on a Sunday
+            DRIVE_COLORS[0],
+            15, DRIVE_COLORS[1],
+            30, DRIVE_COLORS[2],
+            45, DRIVE_COLORS[3],
+            60, DRIVE_OVER_COLOR, // beyond an hour: out of reach, not just far
           ],
           ['==', ['get', 'kind'], 'attender'], '#2f8f5b',
           '#1f6f8f',

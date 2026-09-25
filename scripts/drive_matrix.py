@@ -98,8 +98,12 @@ def main() -> int:
     args = ap.parse_args()
 
     churches = read_json(DATA / "churches.json", {}) or {}
+    examples = read_json(DATA / "examples.json", {}) or {}
     hh = read_json(DATA / "households_anon.json", {}) or {}
-    cands = [c for c in churches.get("candidates", []) if c.get("lat") is not None]
+    # Examples are routed too. Otherwise they sit at zero on the heaviest
+    # scoring weight and the demonstration shows a ranking that cannot move.
+    cands = [c for c in list(churches.get("candidates", [])) + list(examples.get("candidates", []))
+             if c.get("lat") is not None]
     # Out-of-state supporters and flagged outliers are not driving here on a
     # Sunday, so they do not belong in a measure of the Sunday drive.
     homes = [h for h in hh.get("households", [])
@@ -114,6 +118,9 @@ def main() -> int:
 
     if args.limit:
         center = churches.get("center") or {}
+        if center.get("lat") is None:
+            cent = read_json(DATA / "centroids.json", {}) or {}
+            center = (cent.get("centroids") or {}).get(cent.get("default_method") or "", {})
         if center.get("lat") is not None:
             cands.sort(key=lambda c: haversine_mi(c["lat"], c["lon"], center["lat"], center["lon"]))
         cands = cands[: args.limit]

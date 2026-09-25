@@ -22,6 +22,8 @@ export default function TableView({ candidates, onSelect, onBulkStatus, busy }: 
   const [fTenancy, setFTenancy] = useState('');
   const [maxMiles, setMaxMiles] = useState('');
   const [q, setQ] = useState('');
+  const anyListed = candidates.some((c) => c.listed_for_lease);
+  const [listedOnly, setListedOnly] = useState(anyListed);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<Status>('shortlisted');
 
@@ -29,6 +31,7 @@ export default function TableView({ candidates, onSelect, onBulkStatus, busy }: 
     const limit = Number(maxMiles);
     const needle = q.trim().toLowerCase();
     const out = candidates.filter((c) => {
+      if (listedOnly && !c.listed_for_lease) return false;
       if (fStatus && c.status !== fStatus) return false;
       if (fCapacity && c.capacity_est !== fCapacity) return false;
       if (fTenancy && c.tenancy_possible !== fTenancy) return false;
@@ -50,7 +53,7 @@ export default function TableView({ candidates, onSelect, onBulkStatus, busy }: 
       const x = val(a), y = val(b);
       return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
     });
-  }, [candidates, sort, fStatus, fCapacity, fTenancy, maxMiles, q]);
+  }, [candidates, sort, fStatus, fCapacity, fTenancy, maxMiles, q, listedOnly]);
 
   const head = (key: SortKey, label: string, cls = '') => (
     <th className={cls} onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === -1 ? 1 : -1 }))}
@@ -64,6 +67,17 @@ export default function TableView({ candidates, onSelect, onBulkStatus, busy }: 
   return (
     <div className="table-wrap">
       <div className="filters">
+        {anyListed && (
+          <div style={{ flex: '0 0 auto' }}>
+            <label htmlFor="lo">Availability</label>
+            <label htmlFor="lo" className="row" style={{ gap: 6, minHeight: 40, margin: 0 }}>
+              <input id="lo" type="checkbox" checked={listedOnly}
+                style={{ width: 18, height: 18, minHeight: 0 }}
+                onChange={(e) => setListedOnly(e.target.checked)} />
+              <span style={{ fontSize: 13 }}>Listed only</span>
+            </label>
+          </div>
+        )}
         <div>
           <label htmlFor="q">Search</label>
           <input id="q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="name, denomination, address" />
@@ -175,7 +189,16 @@ export default function TableView({ candidates, onSelect, onBulkStatus, busy }: 
         </table>
       )}
       <div className="tiny" style={{ marginTop: 10 }}>
-        Capacity columns marked "est." come from building footprint and parking, not a seat count.
+        Showing {rows.length} of {candidates.length}.
+        {listedOnly && ' Filtered to buildings recorded as listed for lease or sale — '}
+        {listedOnly && (
+          <button className="histo-toggle" onClick={() => setListedOnly(false)}>show all</button>
+        )}
+        <div style={{ marginTop: 4 }}>
+          Capacity columns marked "est." come from building footprint and parking, not a seat
+          count. A building is only marked listed when somebody recorded evidence of it;
+          discovery cannot know.
+        </div>
       </div>
     </div>
   );

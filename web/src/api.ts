@@ -84,6 +84,11 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  geocode: (address: string) =>
+    call<{ matches: { address: string | null; lat: number | null; lon: number | null }[]; note?: string }>(
+      `/api/geocode?address=${encodeURIComponent(address)}`,
+    ),
+
   candidateDrive: (id: string, refresh = false) =>
     call<{
       candidate_id: string;

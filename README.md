@@ -133,6 +133,10 @@ half-answer.
 .venv/bin/python scripts/churches.py
 .venv/bin/python scripts/churches.py --google-places    # needs CCAC_GOOGLE_KEY
 
+# 3a. Optional: 15 clearly fictional example candidates, to try the tool out.
+.venv/bin/python scripts/make_examples.py
+.venv/bin/python scripts/make_examples.py --clear     # remove them again
+
 # 4. Route every candidate to every household. Do not skip this: see below.
 .venv/bin/python scripts/drive_matrix.py
 
@@ -147,6 +151,37 @@ half-answer.
 Re-seeding is **non-destructive to human work**: it refreshes discovered
 geometry but leaves status, notes, contacts and every hand-entered research
 field exactly as the committee left them.
+
+### Adding candidates by hand
+
+Discovery finds buildings that happen to be mapped. The building the parish
+eventually leases is more likely to be one somebody heard about, so manual entry
+is a first-class path, not a fallback. In the dashboard, **+ Add candidate**
+takes:
+
+- an address, geocoded through the Census geocoder;
+- coordinates typed directly, or a click on the map;
+- a pasted list, one per line — `Name, address` or `Name, lat, lon`, with an
+  optional listing URL anywhere on the line. Tabs work, so a spreadsheet column
+  pastes straight in, and a row carrying a URL is marked as listed.
+
+Anything that cannot be placed is reported rather than dropped.
+
+**On listing sites.** LoopNet and Crexi have no public API, and scraping them
+breaches their terms, so this tool does not. Get the listings the way a tenant
+legitimately does — a saved search, an email alert, or a broker's list — and
+paste them in. The table then filters to **Listed only**, which is the right
+working set: screening four thousand buildings in the hope that a few are free
+is the wrong way round.
+
+### The fictional examples
+
+`make_examples.py` writes 15 candidates named after places in Narnia. That is
+deliberate. A realistic set of plausible Riverside church names with real
+addresses would be indistinguishable from genuine leads, and someone would
+eventually phone one or put it in a vestry packet. Fiction that announces itself
+cannot do that. While any are present the dashboard shows a banner, and
+`--clear` removes them.
 
 ### Why `drive_matrix.py` is not optional
 

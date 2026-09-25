@@ -39,6 +39,8 @@ const WRITABLE: Record<string, 'text' | 'number' | 'bool' | readonly string[]> =
   denomination_notes: 'text',
   footprint_ft2: 'number',
   parking_m2: 'number',
+  lat: 'number',
+  lon: 'number',
 };
 
 function coerce(field: string, value: unknown): unknown | undefined {

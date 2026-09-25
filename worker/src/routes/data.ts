@@ -277,6 +277,49 @@ export async function exportCsv({ env, identity }: RouteContext): Promise<Respon
   });
 }
 
+/**
+ * Geocode a free-text US address, for entering a candidate by address.
+ *
+ * Uses the Census geocoder, which is free, needs no key and is built for US
+ * addresses. Nothing about the parish is sent: only the address string the
+ * person typed, which is a commercial property, not a household.
+ */
+export async function geocode({ url }: RouteContext): Promise<Response> {
+  const address = (url.searchParams.get('address') ?? '').trim();
+  if (address.length < 5) return error('address is too short to geocode', 422);
+  if (address.length > 300) return error('address is too long', 422);
+
+  const target = new URL('https://geocoding.geo.census.gov/geocoder/locations/onelineaddress');
+  target.searchParams.set('address', address);
+  target.searchParams.set('benchmark', 'Public_AR_Current');
+  target.searchParams.set('format', 'json');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const resp = await fetch(target, { signal: controller.signal });
+    if (!resp.ok) return error(`geocoder returned ${resp.status}`, 502);
+    const payload = (await resp.json()) as {
+      result?: { addressMatches?: { matchedAddress?: string; coordinates?: { x: number; y: number } }[] };
+    };
+    const matches = payload.result?.addressMatches ?? [];
+    if (matches.length === 0) {
+      return json({ matches: [], note: 'No match. Enter the coordinates directly, or click the map.' });
+    }
+    return json({
+      matches: matches.slice(0, 5).map((m) => ({
+        address: m.matchedAddress ?? null,
+        lat: m.coordinates?.y ?? null,
+        lon: m.coordinates?.x ?? null,
+      })).filter((m) => m.lat != null),
+    });
+  } catch {
+    return error('the geocoder could not be reached; enter coordinates directly', 502);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function dataQuality({ env }: RouteContext): Promise<Response> {
   const [hh, cand] = await Promise.all([
     env.DB.prepare(
@@ -294,6 +337,8 @@ export async function dataQuality({ env }: RouteContext): Promise<Response> {
        (SELECT COUNT(*) FROM households_anon WHERE corrected = 1) AS corrected,
        (SELECT COUNT(*) FROM attenders_anon) AS attenders,
        (SELECT COUNT(*) FROM candidates) AS candidates,
+       (SELECT COUNT(*) FROM candidates WHERE is_example = 1) AS examples,
+       (SELECT COUNT(*) FROM candidates WHERE listed_for_lease = 1) AS listed,
        (SELECT COUNT(*) FROM candidates WHERE capacity_est = 'likely_200+') AS likely_200,
        (SELECT COUNT(*) FROM candidates WHERE status = 'shortlisted') AS shortlisted,
        (SELECT COUNT(*) FROM candidates WHERE status = 'contacted') AS contacted`,

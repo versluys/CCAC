@@ -46,6 +46,7 @@ export interface Candidate {
   service_schedule: string | null;
   denomination_notes: string | null;
   source: string;
+  is_example: number | null;
   updated_by: string | null;
   updated_at: string | null;
   fit_score: number;

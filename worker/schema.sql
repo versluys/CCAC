@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS candidates (
   -- school. A flagged lot never raises the capacity band.
   parking_lots_counted INTEGER,
   parking_shared_suspect INTEGER,
+  -- Fictional demonstration rows. Flagged so the dashboard can warn while any
+  -- are present, and so they can never be quietly mistaken for real leads.
+  is_example INTEGER DEFAULT 0,
   updated_by TEXT, updated_at TEXT
 );
 

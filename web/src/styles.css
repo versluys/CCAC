@@ -19,6 +19,18 @@
   --shadow: 0 1px 2px rgba(31, 29, 26, 0.06), 0 4px 16px rgba(31, 29, 26, 0.06);
   --radius: 8px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Drive-time ramp. Sequential (one hue, ordered by minutes) because drive
+     time is a magnitude, not an identity. Steps validated for colourblind and
+     normal-vision separation against this surface; the over-an-hour bucket is a
+     status colour, not a fifth step, because that household is effectively out
+     of reach rather than further along the same scale. Every mark carries a
+     visible label, which is what the low-contrast light steps require. */
+  --drive-1: #103d52;
+  --drive-2: #2b7f9f;
+  --drive-3: #74bdd3;
+  --drive-4: #cbe8f2;
+  --drive-over: #a84d4d;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,6 +49,14 @@
     --danger: #d98080;
     --good: #5cc48c;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.3);
+
+    /* Chosen against the dark surface and re-validated, not an inverted copy of
+       the light ramp. Near reads bright here, far reads deep. */
+    --drive-1: #d6edf5;
+    --drive-2: #7cc2d8;
+    --drive-3: #2f81a0;
+    --drive-4: #1a4e66;
+    --drive-over: #d98080;
   }
 }
 
@@ -254,4 +274,26 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .field-grid { grid-template-columns: 1fr; }
   .map-overlay { max-width: calc(100vw - 20px); }
   th, td { padding: 8px 6px; }
+}
+
+/* ---- drive-time histogram ---- */
+.histo { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.histo-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
+.histo-head h4 { margin: 0; font-size: 12px; font-weight: 600; }
+.histo-head .src { font-size: 10px; color: var(--text-faint); margin-left: auto; }
+
+.histo-row { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 6px; margin-bottom: 2px; }
+.histo-row .band { font-size: 11px; color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
+/* 2px surface gap between adjacent fills, so bars read as separate marks. */
+.histo-track { height: 14px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.histo-bar { height: 100%; border-radius: 0 4px 4px 0; min-width: 2px; transition: width 180ms ease; }
+.histo-row .val { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 54px; text-align: right; }
+.histo-row:hover .band, .histo-row:hover .val { color: var(--text); }
+
+.histo-foot { font-size: 10px; color: var(--text-faint); margin-top: 5px; }
+.histo table { font-size: 11px; margin-top: 6px; }
+.histo table th, .histo table td { padding: 3px 5px; }
+.histo-toggle {
+  background: none; border: none; padding: 0; min-height: 0;
+  font-size: 10px; color: var(--accent); cursor: pointer; text-decoration: underline;
 }
