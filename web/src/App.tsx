@@ -263,6 +263,11 @@ export default function App() {
   }
 
   const placed = households.filter((h) => h.lat != null).length;
+  // Donor rows on file, not rows in the database. A household with no address
+  // never becomes a row, so counting rows would report "43 of 43" and hide the
+  // people nobody can place — the single most misleading thing this header
+  // could say.
+  const donorTotal = quality?.totals?.donor_rows_total ?? households.length;
   const within20 = driveBands?.['20'];
   const likely = candidates.filter((c) => c.capacity_est === 'likely_200+').length;
   const shortlisted = candidates.filter((c) => c.status === 'shortlisted').length;
@@ -289,8 +294,8 @@ export default function App() {
         )}
 
         <div className="kpis">
-          <Kpi v={`${placed} of ${households.length}`} l="Households placed"
-               sub={`${households.length - placed} have no address on file`} />
+          <Kpi v={`${placed} of ${donorTotal}`} l="Households placed"
+               sub={`${Math.max(0, donorTotal - placed)} cannot be placed at all`} />
           <Kpi v={within20 ? `${Math.round(within20.share * 100)}%` : '—'} l="Within 20 min of centre"
                sub={
                  within20

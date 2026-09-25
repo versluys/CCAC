@@ -110,7 +110,7 @@ export interface Centroid {
 }
 
 export interface DataQuality {
-  totals: Record<string, number>;
+  totals: Record<string, number | null>;
   match_quality: Record<string, number>;
   capacity_bands: Record<string, number>;
   caveats: string[];

@@ -1,6 +1,6 @@
 /** Read-only routes: identity, households, centroids, settings, export. */
 
-import { audit, driveShareWithin, getGrowth, getScreen, getWeights, putSetting } from '../db';
+import { audit, driveShareWithin, getGrowth, getScreen, getSetting, getWeights, putSetting } from '../db';
 import { error, json, readJson, type RouteContext } from '../http';
 import { DEFAULT_WEIGHTS, growthProjection, scoreCandidate, seatsForProjection } from '../scoring';
 
@@ -321,6 +321,11 @@ export async function geocode({ url }: RouteContext): Promise<Response> {
 }
 
 export async function dataQuality({ env }: RouteContext): Promise<Response> {
+  // The ingest summary is carried in settings, not counted from rows, because
+  // the donors it counts are precisely the ones that have no row: a household
+  // with no address on file never enters households_anon. Counting rows would
+  // report "43 of 43" and hide the 30 people nobody can place.
+  const ingest = await getSetting<Record<string, unknown>>(env.DB, 'ingest', {});
   const [hh, cand] = await Promise.all([
     env.DB.prepare(
       `SELECT match_quality, COUNT(*) AS n FROM households_anon GROUP BY match_quality`,
@@ -344,8 +349,24 @@ export async function dataQuality({ env }: RouteContext): Promise<Response> {
        (SELECT COUNT(*) FROM candidates WHERE status = 'contacted') AS contacted`,
   ).first<Record<string, number>>();
 
+  const donorRowsTotal = typeof ingest.donor_rows_total === 'number'
+    ? ingest.donor_rows_total
+    : (totals?.households ?? 0);
+  const placed = totals?.placed ?? 0;
+
   return json({
-    totals,
+    totals: {
+      ...totals,
+      // Every donor row on file, including the ones with no address at all.
+      donor_rows_total: donorRowsTotal,
+      // Donors who cannot be put on a map, which is the number that matters.
+      unplaced: Math.max(0, donorRowsTotal - placed),
+      unplaced_no_address: ingest.unplaced_rows ?? null,
+      ship_only_rows: ingest.ship_only_rows ?? null,
+      overrides_applied: ingest.overrides_applied ?? null,
+      outlier_threshold_mi: ingest.outlier_threshold_mi ?? null,
+    },
+    ingest,
     match_quality: Object.fromEntries(hh.results.map((r) => [r.match_quality, r.n])),
     capacity_bands: Object.fromEntries(cand.results.map((r) => [r.capacity_est, r.n])),
     caveats: [

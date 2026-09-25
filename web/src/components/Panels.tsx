@@ -15,7 +15,7 @@ export function DataQualityPanel({
   if (!quality) return <div className="empty">Loading…</div>;
   const t = quality.totals ?? {};
   const placed = t.placed ?? 0;
-  const total = t.households ?? 0;
+  const total = t.donor_rows_total ?? t.households ?? 0;
 
   return (
     <div className="panel-wrap">
@@ -31,7 +31,8 @@ export function DataQualityPanel({
         <dl className="facts">
           <dt>Donor rows on file</dt><dd>{total}</dd>
           <dt>Placed on the map</dt><dd>{placed} ({total ? Math.round((placed / total) * 100) : 0}%)</dd>
-          <dt>Could not be placed</dt><dd>{t.unplaced ?? 0} — no address in the giving record</dd>
+          <dt>Could not be placed</dt>
+          <dd>{t.unplaced ?? 0} — no usable address in the giving record</dd>
           <dt>Flagged as outliers</dt><dd>{t.outliers ?? 0} — out of state, or far from the core</dd>
           <dt>Parish-corrected addresses</dt><dd>{t.corrected ?? 0}</dd>
           <dt>Attender ZIP cards</dt><dd>{t.attenders ?? 0}</dd>
