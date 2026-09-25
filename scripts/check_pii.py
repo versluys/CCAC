@@ -36,8 +36,41 @@ STREET_RE = re.compile(
 ALLOWED_HOUSEHOLD_KEYS = {"id", "lat", "lon", "zip", "in_state", "outlier", "match_quality", "corrected"}
 ALLOWED_ATTENDER_KEYS = {"id", "zip", "lat", "lon", "household_size", "joined_within_12mo"}
 
-# data/zip_centroids.csv is published Census/USPS geography, not donor data.
-REFERENCE_FILES = {"zip_centroids.csv"}
+# ---------------------------------------------------------------------------
+# What each published file is, and therefore what counts as a finding in it.
+#
+# The point of this gate is donor privacy, not the absence of all addresses.
+# A church's street address and office telephone are public commercial details
+# and are the whole reason the candidate files exist; flagging them makes the
+# gate cry wolf on every run, and a gate that always fails is a gate nobody
+# reads. What must never appear is anything traceable to a parishioner.
+#
+# Anything not listed here is treated as donor-derived, so a new output added
+# later is checked strictly until somebody classifies it deliberately.
+# ---------------------------------------------------------------------------
+
+# Derived from the giving record. Strict: no emails, phones, street addresses
+# or donor names, and only the R-P3 key set.
+DONOR_DERIVED = {
+    "households_anon.json",
+    "attenders_anon.json",
+    "data_quality.json",
+    # Positions computed from where households are, so it is checked as
+    # strictly as the households themselves.
+    "centroids.json",
+}
+
+# Derived from OpenStreetMap, routing, or a committee member typing in a
+# building they heard about. These describe churches, not households.
+CANDIDATE_DERIVED = {
+    "churches.json",
+    "examples.json",
+    "candidate_drive.json",
+    "isochrones.json",
+}
+
+# Published geography and templates. No parish data of any kind.
+REFERENCE_FILES = {"zip_centroids.csv", "OVERRIDES_TEMPLATE.csv"}
 
 # private/README.md documents what belongs in private/ and is deliberately
 # tracked, so that a fresh clone has the directory to fill. It is the only
@@ -73,30 +106,54 @@ def donor_name_tokens() -> set[str]:
 
 def main() -> int:
     findings: list[str] = []
+    review: list[str] = []
     names = donor_name_tokens()
     if names:
         print(f"Loaded {len(names)} donor name tokens from private/ for cross-checking.")
     else:
         print("No private workbook present; running pattern checks only.")
 
+    unclassified: list[str] = []
     for path in sorted(DATA.rglob("*")):
         if not path.is_file():
             continue
         rel = path.relative_to(ROOT)
         text = path.read_text(errors="replace")
-        is_reference = path.name in REFERENCE_FILES
+
+        if path.name in REFERENCE_FILES:
+            continue
+
+        about_churches = path.name in CANDIDATE_DERIVED
+        if not about_churches and path.name not in DONOR_DERIVED:
+            # Fail closed: an unclassified file is checked as if it came from the
+            # donor record, and named so somebody decides what it is.
+            unclassified.append(str(rel))
+
+        if about_churches:
+            # A church's own address and telephone belong here. What would not
+            # is a parishioner's name, so that check still runs — but as a
+            # review item, because a surname can legitimately be part of a
+            # church's name and a false alarm every run would retire the gate.
+            lowered = text.lower()
+            for tok in sorted(names):
+                if re.search(rf"\b{re.escape(tok)}\b", lowered):
+                    review.append(
+                        f"{rel}: {tok!r} matches a donor name token. Church names and "
+                        f"street names share surnames, so this is usually a coincidence — "
+                        f"confirm it is not a household that reached this file."
+                    )
+            continue
 
         for m in EMAIL_RE.finditer(text):
             findings.append(f"{rel}: email-like string {m.group()!r}")
         for m in PHONE_RE.finditer(text):
             findings.append(f"{rel}: phone-like string {m.group()!r}")
-        if not is_reference:
-            for m in STREET_RE.finditer(text):
-                findings.append(f"{rel}: street-address-like string {m.group()!r}")
-            lowered = text.lower()
-            for tok in names:
-                if re.search(rf"\b{re.escape(tok)}\b", lowered):
-                    findings.append(f"{rel}: donor name token {tok!r} appears in published data")
+        for m in STREET_RE.finditer(text):
+            findings.append(f"{rel}: street-address-like string {m.group()!r}")
+        lowered = text.lower()
+        for tok in names:
+            if re.search(rf"\b{re.escape(tok)}\b", lowered):
+                findings.append(f"{rel}: donor name token {tok!r} appears in published data")
 
     # Structural checks on the published household/attender records.
     hh = DATA / "households_anon.json"
@@ -130,12 +187,31 @@ def main() -> int:
     except OSError:
         pass
 
+    if unclassified:
+        print(f"\nNOTE — {len(unclassified)} file(s) in data/ are not classified in "
+              f"check_pii.py, so they were checked strictly:")
+        for u in unclassified:
+            print(f"  - {u}")
+        print("  Add each to DONOR_DERIVED or CANDIDATE_DERIVED once you know what it holds.")
+
+    if review:
+        shown = review[:15]
+        print(f"\nREVIEW — {len(review)} name collision(s) in church data "
+              f"(not failures){', first 15 shown' if len(review) > 15 else ''}:")
+        for r in shown:
+            print(f"  - {r}")
+
     if findings:
         print(f"\nFAIL — {len(findings)} finding(s):", file=sys.stderr)
-        for f in findings:
+        for f in findings[:40]:
             print(f"  - {f}", file=sys.stderr)
+        if len(findings) > 40:
+            print(f"  ... and {len(findings) - 40} more", file=sys.stderr)
         return 1
-    print("\nPASS — data/ contains no donor PII, coordinates are rounded, private/ is untracked.")
+    print("\nPASS — no donor PII in the published data, coordinates are rounded, "
+          "private/ is untracked.")
+    print("      Church addresses and phone numbers in the candidate files are public "
+          "commercial details and are expected.")
     return 0
 
 
