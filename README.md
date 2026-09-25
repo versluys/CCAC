@@ -129,17 +129,42 @@ half-answer.
 # 2. Centroids: naive mean, trimmed mean, geometric median, drive-time median.
 .venv/bin/python scripts/centroid.py
 
-# 3. Churches within 20 miles, with footprint and parking.
+# 3. Churches within the search radius (40 mi), with footprint and parking.
 .venv/bin/python scripts/churches.py
 .venv/bin/python scripts/churches.py --google-places    # needs CCAC_GOOGLE_KEY
 
-# 4. Generate the D1 seed.
+# 4. Route every candidate to every household. Do not skip this: see below.
+.venv/bin/python scripts/drive_matrix.py
+
+# 5. Optional: reachable-area polygons for the map, 15/30/45/60 min.
+.venv/bin/python scripts/isochrones.py
+.venv/bin/python scripts/isochrones.py --candidate "Grace"   # around one church
+
+# 6. Generate the D1 seed.
 .venv/bin/python scripts/seed_d1.py > worker/seed.sql
 ```
 
 Re-seeding is **non-destructive to human work**: it refreshes discovered
 geometry but leaves status, notes, contacts and every hand-entered research
 field exactly as the committee left them.
+
+### Why `drive_matrix.py` is not optional
+
+`fit_score` gives its heaviest weight, 35 of 100 points, to the share of
+households within a 20-minute drive. Nothing in OpenStreetMap knows that, so
+until a candidate has been routed it scores **zero** on the factor that matters
+most. The dashboard routes a candidate when someone opens it, which serves the
+handful under active consideration and does nothing for ranking thousands — and
+the ranking is what decides which candidates anyone ever opens. Skip this step
+and the sort order buries good buildings.
+
+One OSRM request carries many origins against the same destinations, so with a
+few dozen households roughly fifty candidates fit per request. A few thousand
+candidates cost a couple of minutes, once, cached.
+
+At a 40-mile radius, distance is also the wrong filter. A church 38 miles out
+along the 91 can be a shorter Sunday drive than one 22 miles away over the
+hills. Filter the table on drive time, not miles.
 
 ### Which centre to use
 

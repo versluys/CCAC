@@ -47,7 +47,11 @@ OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 ]
-SEARCH_RADIUS_M = 32187  # 20 statute miles
+# 40 statute miles. Widened from 20 on the vestry's call, because the drive
+# bands showed that 20 miles of radius and an hour of acceptable drive are not
+# the same catchment: the 91 and the 215 carry a car 35 miles in the time the
+# hills south of Riverside take to cross 15.
+SEARCH_RADIUS_M = 64374
 PARKING_RADIUS_M = 100
 
 M2_PER_FT2 = 0.09290304

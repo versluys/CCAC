@@ -33,6 +33,8 @@ interface Props {
   isochrones: GeoJSON.Feature[];
   /** Drive minutes from the selected candidate to each household, by id. */
   driveMinutes: Record<string, number | null> | null;
+  /** Search radius in miles, from settings. */
+  radiusMi: number;
   layers: Layers;
   onSelect: (id: string) => void;
   onPickPoint?: (lat: number, lon: number) => void;
@@ -147,7 +149,7 @@ export default function MapView(props: Props) {
 
     ensureSource('ring', {
       type: 'FeatureCollection',
-      features: center ? [circle(center.lat, center.lon, 20)] : [],
+      features: center ? [circle(center.lat, center.lon, props.radiusMi)] : [],
     });
 
     // Real routed isochrones when the pipeline has produced them; plainly
@@ -308,7 +310,7 @@ export default function MapView(props: Props) {
       },
       paint: { 'text-color': '#5f5a52', 'text-halo-color': '#fff', 'text-halo-width': 1.5 },
     });
-  }, [ready, households, attenders, centroids, candidates, center, props.isochrones, props.driveMinutes]);
+  }, [ready, households, attenders, centroids, candidates, center, props.isochrones, props.driveMinutes, props.radiusMi]);
 
   // --- layer visibility ---------------------------------------------------
   useEffect(() => {

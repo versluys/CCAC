@@ -54,6 +54,7 @@ export default function App() {
     name: string;
   } | null>(null);
   const [drivePending, setDrivePending] = useState(false);
+  const [radiusMi, setRadiusMi] = useState(40);
   const [pickMode, setPickMode] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [layers, setLayers] = useState<Layers>({
@@ -79,6 +80,13 @@ export default function App() {
         setChosenMethod(cRes.default_method ?? cRes.centroids[0]?.method ?? '');
         setCandidates(candRes.candidates);
         setQuality(dqRes);
+
+        try {
+          const settings = await api.settings();
+          if (settings.screen?.search_radius_mi) setRadiusMi(settings.screen.search_radius_mi);
+        } catch {
+          /* keep the default */
+        }
 
         // Isochrones are optional: the pipeline step that produces them needs a
         // routing service, so the map must work without them.
@@ -275,6 +283,7 @@ export default function App() {
               center={center}
               isochrones={isochrones}
               driveMinutes={driveMinutes}
+              radiusMi={radiusMi}
               layers={layers}
               onSelect={setSelected}
               pickMode={pickMode}
@@ -293,7 +302,7 @@ export default function App() {
                     ['heatmap', 'Household heatmap'],
                     ['households', 'Household points'],
                     ['centroids', 'Centroid markers'],
-                    ['ring', '20-mile ring'],
+                    ['ring', `${radiusMi}-mile search ring`],
                     ['isochrones', isochrones.length
                       ? 'Drive-time isochrones (15/30/45/60 min)'
                       : '15/30/45/60-min distance rings'],
