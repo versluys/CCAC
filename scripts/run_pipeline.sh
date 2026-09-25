@@ -2,12 +2,20 @@
 #
 # Run the whole pipeline, from anywhere.
 #
-#   scripts/run_pipeline.sh                  full run
-#   scripts/run_pipeline.sh --keep-discovery reuse the cached Overpass results
-#   scripts/run_pipeline.sh --examples       add the 15 fictional examples
-#   scripts/run_pipeline.sh --isochrones     also compute the reachable-area polygons
-#   scripts/run_pipeline.sh --serve          build the web app and start the worker at the end
-#   scripts/run_pipeline.sh --reset-db       recreate the local database from scratch first
+#   scripts/run_pipeline.sh                    households, centres, and the candidates on file
+#   scripts/run_pipeline.sh --serve            build the web app and start the worker too
+#   scripts/run_pipeline.sh --examples         include the 15 fictional example candidates
+#   scripts/run_pipeline.sh --discover         ALSO sweep OpenStreetMap for every church
+#   scripts/run_pipeline.sh --clear-discovered forget a previous sweep
+#   scripts/run_pipeline.sh --isochrones       compute the reachable-area polygons
+#   scripts/run_pipeline.sh --reset-db         recreate the local database from scratch first
+#
+# Discovery is off by default, deliberately. A 40-mile sweep returns about 2,500
+# churches, of which a handful are available and most have no mapped building.
+# That is a list nobody works. The candidates worth tracking are the ones someone
+# heard about — a listing, a broker, a conversation after a service — entered by
+# hand in the dashboard. Use --discover when you want the sweep as a reference,
+# not as the working list.
 #
 # This exists because the two mistakes that actually cost time during the build
 # were not logic errors. They were running from the wrong directory, and pasting
@@ -24,7 +32,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 PY="$ROOT/.venv/bin/python"
-KEEP_DISCOVERY=0
+DISCOVER=0
+CLEAR_DISCOVERED=0
 WITH_EXAMPLES=0
 WITH_ISOCHRONES=0
 SERVE=0
@@ -33,13 +42,15 @@ RESET_DB=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --keep-discovery) KEEP_DISCOVERY=1 ;;
+    --discover)       DISCOVER=1 ;;
+    --clear-discovered) CLEAR_DISCOVERED=1 ;;
+    --keep-discovery) echo "note: --keep-discovery is no longer needed; discovery is off by default" ;;
     --examples)       WITH_EXAMPLES=1 ;;
     --isochrones)     WITH_ISOCHRONES=1 ;;
     --serve)          SERVE=1 ;;
     --reset-db)       RESET_DB=1 ;;
     --force)          FORCE=1 ;;
-    -h|--help)        sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)        sed -n '3,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -71,15 +82,30 @@ say "2/6  Privacy gate"
 say "3/6  Centroids"
 "$PY" scripts/centroid.py || die "centroid failed"
 
-say "4/6  Church discovery"
-if [[ $KEEP_DISCOVERY -eq 1 ]]; then
-  echo "reusing the cached Overpass results (--keep-discovery)"
-else
+if [[ $CLEAR_DISCOVERED -eq 1 ]]; then
+  say "Clearing a previous sweep"
+  rm -f data/churches.json .cache/overpass_*.json
+  echo "removed data/churches.json; hand-entered candidates live in the database and are untouched"
+fi
+
+say "4/6  Candidate discovery"
+if [[ $DISCOVER -eq 1 ]]; then
   # The cache keys on the query text, which includes the radius, so a stale
   # response from a different radius would be silently reused.
   rm -f .cache/overpass_*.json
+  "$PY" scripts/churches.py || die "church discovery failed. Overpass may have timed out; run this again — the church query caches separately from parking, so a retry only redoes what failed."
+else
+  echo "skipped: the sweep is off by default (--discover to run it)."
+  if [[ -f data/churches.json ]]; then
+    n=$("$PY" -c "import json,sys;print(len(json.load(open('data/churches.json')).get('candidates') or []))" 2>/dev/null || echo 0)
+    if [[ "$n" -gt 0 ]]; then
+      echo "  data/churches.json still holds $n candidate(s) from an earlier sweep, and they"
+      echo "  will be seeded. Use --clear-discovered to drop them."
+    fi
+  fi
+  echo "  Candidates you add in the dashboard live in the database and are not affected"
+  echo "  by this script."
 fi
-"$PY" scripts/churches.py || die "church discovery failed. Overpass may have timed out; run this again — the church query caches separately from parking, so a retry only redoes what failed."
 
 if [[ $WITH_EXAMPLES -eq 1 ]]; then
   say "4a/6  Fictional examples"
@@ -111,9 +137,23 @@ if [[ $SERVE -eq 1 ]]; then
   # notes, status changes and contacts somebody typed in, which is why this is
   # a flag and not automatic.
   if [[ $RESET_DB -eq 1 ]]; then
-    echo "removing the local database (--reset-db): any locally entered notes or"
-    echo "status changes go with it; everything else comes back from seed.sql"
-    rm -rf worker/.wrangler/state
+    echo
+    echo "--reset-db removes the local database."
+    echo
+    echo "Households, centres, drive times and the examples all come back from the"
+    echo "seed. What does NOT come back is anything typed into the dashboard:"
+    echo "candidates added by hand, notes, contacts, status changes. Those live only"
+    echo "here. Export them first if there is anything to lose:"
+    echo "    http://localhost:8787/api/export.csv"
+    echo
+    if [[ -d worker/.wrangler/state ]]; then
+      printf 'Continue? [y/N] '
+      read -r reply
+      case "$reply" in
+        y|Y|yes|YES) rm -rf worker/.wrangler/state; echo "database removed" ;;
+        *) echo "left the database alone; the seed may fail if its schema is older than schema.sql"; ;;
+      esac
+    fi
   fi
 
   ( cd worker && npm run db:schema:local && npm run db:seed:local ) || {

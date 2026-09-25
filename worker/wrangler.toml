@@ -24,11 +24,24 @@ database_name = "ccac-sitefinder"
 # Replace with the id printed by:  npx wrangler d1 create ccac-sitefinder
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 
+# The parish's own subdomain. Uncomment and set once the DNS zone is on
+# Cloudflare; wrangler creates the record and the certificate. Until then the
+# Worker is reachable at cair-paravel.<account>.workers.dev, which is fine for
+# setting Access up but is not where the committee should be sent.
+# routes = [
+#   { pattern = "sitefinder.christschapelrec.org", custom_domain = true }
+# ]
+
 [vars]
-# Not secrets: these are public identifiers for the Access application, and
-# the Worker still verifies every token's signature against the team's JWKS.
+# Not secrets: these are public identifiers for the Access application, and the
+# Worker verifies every token's signature against the team's JWKS regardless.
+# Zero Trust > Settings > Custom Pages shows the team domain; the AUD tag is on
+# the Access application's own page.
 CF_ACCESS_TEAM_DOMAIN = "REPLACE_WITH_YOUR_TEAM.cloudflareaccess.com"
 CF_ACCESS_AUD = "REPLACE_WITH_YOUR_ACCESS_APPLICATION_AUD_TAG"
+# A second gate behind the Access policy. With this set, a policy edited by
+# mistake still cannot open the parish's research to anyone outside the domain.
+# Set it to the Workspace domain, e.g. "christschapelrec.org".
 ALLOWED_EMAIL_DOMAINS = ""
 ENVIRONMENT = "production"
 

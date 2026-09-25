@@ -160,7 +160,8 @@ half-answer.
 # 2. Centroids: naive mean, trimmed mean, geometric median, drive-time median.
 .venv/bin/python scripts/centroid.py
 
-# 3. Churches within the search radius (40 mi), with footprint and parking.
+# 3. Optional: sweep OpenStreetMap for every church in the radius. Off by
+#    default — see "Where candidates come from" below.
 .venv/bin/python scripts/churches.py
 .venv/bin/python scripts/churches.py --google-places    # needs CCAC_GOOGLE_KEY
 
@@ -182,6 +183,29 @@ half-answer.
 Re-seeding is **non-destructive to human work**: it refreshes discovered
 geometry but leaves status, notes, contacts and every hand-entered research
 field exactly as the committee left them.
+
+### Where candidates come from
+
+**By hand, mostly.** A 40-mile sweep of OpenStreetMap returns about 2,500
+churches. A handful are available, most have no mapped building, and nobody works
+a list that long: the 20-minute reach of the top ten differs by a single
+household, so the ranking cannot separate them either. The sweep is a reference,
+not a worklist, which is why `run_pipeline.sh` leaves it off unless you pass
+`--discover`.
+
+The candidates worth tracking are the ones a person heard about — a listing, a
+broker, a conversation after a service. Those go in through the dashboard.
+
+**Hand-entered candidates live only in the database.** A normal re-seed leaves
+them alone; `--reset-db` does not, and neither does anything else that recreates
+the local database. Export before you reset:
+
+```
+http://localhost:8787/api/export.csv
+```
+
+Once the committee is entering real candidates, deploy to a real D1 rather than
+relying on a local database that any schema change can force you to recreate.
 
 ### Adding candidates by hand
 
@@ -253,55 +277,69 @@ dashboard carries the same warning wherever drive figures appear.
 
 ## Deploying
 
-```bash
-cd worker
-npx wrangler d1 create ccac-sitefinder     # paste the id into wrangler.toml
-npm run db:schema
-npm run db:seed
-
-cd ../web && npm run build                  # the Worker serves web/dist
-cd ../worker && npm run deploy
-```
-
-Then in Cloudflare Zero Trust:
-
-1. Add **Google Workspace** as an identity provider.
-2. Create an **Access application** for the Worker's hostname.
-3. Policy: allow the Christ's Chapel Workspace domain, ideally narrowed to a
-   group such as `site-committee@`.
-4. Copy the application's **AUD tag** and your team domain into
-   `worker/wrangler.toml`.
-5. Optionally set `ALLOWED_EMAIL_DOMAINS` as a second gate, so a
-   mis-configured Access policy cannot silently open parish research to the
-   internet.
-
-The Worker **verifies the Access JWT itself** against the team's JWKS —
-signature, audience, issuer and expiry. The presence of the
-`Cf-Access-Jwt-Assertion` header proves nothing; anyone can set a header. A
-token minted for a *different* Access application is signed by the same team
-key and is rejected on the audience check.
-
-### When the schema changes
-
-`schema.sql` uses `CREATE TABLE IF NOT EXISTS`, which cannot add a column to a
-table that already exists. A database created before a schema change keeps its
-old shape, and the seed then fails on the missing column.
-
-Locally that is harmless to fix, because everything except hand-entered notes,
-status changes and contacts is regenerated from `seed.sql`:
+The tool is meant to live on a subdomain the parish owns, behind Google sign-in
+restricted to Christ's Chapel leadership. One Worker serves the dashboard and the
+API, so a single Access application covers both.
 
 ```bash
-scripts/run_pipeline.sh --keep-discovery --serve --reset-db
+scripts/deploy.sh --check     # what is configured and what is missing
+scripts/deploy.sh --db        # create the D1 database, then apply the schema
+scripts/deploy.sh --seed      # push the current pipeline output
+scripts/deploy.sh             # build the dashboard and deploy the Worker
 ```
 
-On a deployed D1 it is not harmless: the committee's research lives there. Add
-the column with `ALTER TABLE` rather than recreating the database:
+`--check` also prints the Access steps, so they are to hand at the point you need
+them rather than in a document.
 
-```bash
-cd worker
-npx wrangler d1 execute ccac-sitefinder --remote \
-  --command "ALTER TABLE candidates ADD COLUMN is_example INTEGER DEFAULT 0"
-```
+### The order that works
+
+1. `--db`, paste the printed `database_id` into `worker/wrangler.toml`, run `--db`
+   again to apply the schema.
+2. Deploy once, so the hostname exists for Access to point at.
+3. Set up Access (below), then put the team domain and AUD tag into
+   `wrangler.toml` and deploy again.
+4. `--seed`.
+
+Visiting the Worker before Access is in front of it returns 403. That is the
+Worker refusing an unverified request, which is the whole point, not a broken
+deploy.
+
+### Cloudflare Access
+
+1. **Zero Trust → Settings → Authentication → Login methods**: add Google
+   Workspace.
+2. **Zero Trust → Access → Applications → Add → Self-hosted**, with the Worker's
+   hostname as the domain.
+3. **Policy**: Allow, Include → *Emails ending in* `@<your-domain>`, ideally
+   narrowed to a Google group such as `site-committee@`.
+4. Copy the application's **AUD tag** into `CF_ACCESS_AUD` and the team domain
+   into `CF_ACCESS_TEAM_DOMAIN`. Set `ALLOWED_EMAIL_DOMAINS` to the Workspace
+   domain as a second gate, so a policy edited by mistake cannot open the
+   parish's research to the internet.
+5. Redeploy, then open the app in a private window. Google should challenge you,
+   and an account outside the parish should be refused.
+
+The Worker **verifies the token itself** — signature against the team's JWKS,
+plus audience, issuer and expiry. The presence of the `Cf-Access-Jwt-Assertion`
+header proves nothing, since anyone can set a header, and a token minted for a
+different Access application in the same account is signed by the same key and is
+refused on the audience check.
+
+### The custom domain
+
+Uncomment `routes` in `worker/wrangler.toml` and set the hostname. The DNS zone
+must be on Cloudflare; wrangler then creates the record and the certificate.
+Until then the Worker answers on `cair-paravel.<account>.workers.dev`, which is
+fine for setting Access up but is not where the committee should be sent.
+
+### Why deploying matters sooner rather than later
+
+Candidates, notes and contacts entered by hand exist only in the database they
+were typed into. A local one is disposable: any schema change can force it to be
+recreated, and `--reset-db` discards it outright. A re-seed never touches them,
+but nothing protects them from the database itself going away. Once the committee
+is entering real research rather than trying the tool out, it belongs somewhere
+that persists.
 
 ### Local development
 
