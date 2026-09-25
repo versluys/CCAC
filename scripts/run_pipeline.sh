@@ -52,7 +52,7 @@ echo "Repository: $ROOT"
 
 # ---------------------------------------------------------------------------
 say "Preflight"
-if ! "$PY" scripts/preflight.py; then
+if ! "$PY" scripts/preflight.py --stage pre; then
   if [[ $FORCE -eq 0 ]]; then
     die "preflight reported failures. Fix them, or re-run with --force to proceed anyway."
   fi
@@ -96,7 +96,7 @@ say "6/6  Database seed"
 wc -l < worker/seed.sql | xargs printf 'worker/seed.sql: %s statements\n'
 
 say "Preflight again"
-"$PY" scripts/preflight.py || echo "(see the warnings above)"
+"$PY" scripts/preflight.py --stage post || echo "(see the warnings above)"
 
 if [[ $SERVE -eq 1 ]]; then
   say "Building and serving"

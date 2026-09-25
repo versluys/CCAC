@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Check the machine and the data before, or after, a pipeline run.
 
-    .venv/bin/python scripts/preflight.py
+    .venv/bin/python scripts/preflight.py                # everything
+    .venv/bin/python scripts/preflight.py --stage pre    # can the pipeline run?
+    .venv/bin/python scripts/preflight.py --stage post   # did it produce good output?
 
 Every check here exists because something actually went wrong during the build,
-not because it seemed prudent. Run it before a pipeline run to catch the setup
-problems, and again afterwards to catch the staleness ones.
+not because it seemed prudent.
+
+The stage matters. Before a run, missing output is the normal state and not a
+problem; the questions are whether the tools, the inputs and the network are
+there. After a run, missing or stale output is exactly the problem. Checking
+both at once means a clean checkout always reports failures for files the
+pipeline has not been asked to produce yet.
 
 FAIL means a number in the dashboard will be wrong or missing.
 WARN means it will be right but weaker than it could be.
@@ -13,8 +20,8 @@ WARN means it will be right but weaker than it could be.
 
 from __future__ import annotations
 
+import argparse
 import json
-import os
 import pathlib
 import re
 import subprocess
@@ -27,6 +34,18 @@ DATA = ROOT / "data"
 CACHE = ROOT / ".cache"
 
 RESULTS: list[tuple[str, str, str, str]] = []  # level, title, detail, remedy
+
+# Set from --stage. In "pre" the pipeline has not run yet, so absent output is
+# reported as a note rather than a failure.
+STAGE = "all"
+
+
+def pending(title, detail, remedy=""):
+    """Missing output: a failure after a run, merely the starting state before one."""
+    if STAGE == "pre":
+        RESULTS.append(("....", title, detail + " — not produced yet", ""))
+    else:
+        RESULTS.append(("FAIL", title, detail, remedy))
 
 
 def ok(title, detail=""):
@@ -140,16 +159,25 @@ def check_network():
                  "-117.37,33.93;-117.40,33.95?overview=false", "drive times and isochrones"),
         ("Map tiles", "https://tiles.openfreemap.org/styles/positron", "the basemap in the browser"),
     ]
+    # A descriptive User-Agent, because Overpass answers a bare request with 406.
+    headers = {"User-Agent": "ChristsChapelSiteFinder/1.0 (parish site search; preflight check)"}
     for name, url, what in targets:
         try:
-            r = requests.get(url, timeout=20)
-            if r.ok:
-                ok(f"Reachable: {name}", what)
-            else:
-                warn(f"Reachable: {name}", f"HTTP {r.status_code} — {what} may degrade", "")
+            r = requests.get(url, timeout=20, headers=headers)
         except Exception as exc:
             fail(f"Unreachable: {name}", f"{type(exc).__name__} — {what} cannot run",
                  "run this from an ordinary network connection, off VPN")
+            continue
+        # Any HTTP status means the host answered, which is what reachability
+        # means. A 4xx says it disliked this particular probe, not that the
+        # pipeline's own request will fail — those are POSTs with real payloads.
+        if r.ok:
+            ok(f"Reachable: {name}", what)
+        elif r.status_code < 500:
+            ok(f"Reachable: {name}", f"{what} (probe got HTTP {r.status_code}; the host answered)")
+        else:
+            warn(f"Reachable: {name}", f"HTTP {r.status_code} — {what} may degrade",
+                 "the service is up but unwell; try again shortly")
 
 
 def check_radius():
@@ -162,8 +190,8 @@ def check_radius():
         radius = None
     ch = read(DATA / "churches.json")
     if not ch or not ch.get("candidates"):
-        warn("Church discovery", "churches.json holds no candidates",
-             ".venv/bin/python scripts/churches.py")
+        pending("Church discovery", "churches.json holds no candidates",
+                ".venv/bin/python scripts/churches.py")
         return
     stored = ch.get("radius_m")
     if radius and stored and stored != radius:
@@ -209,7 +237,11 @@ def check_order():
     if stale:
         return
     if len(present) < 2:
-        warn("Stage order", "too few stages have run to check the ordering", "")
+        if STAGE == "pre":
+            RESULTS.append(("....", "Stage order", "nothing to order yet", ""))
+        else:
+            warn("Stage order", "too few stages have run to check the ordering",
+                 "run the pipeline: scripts/run_pipeline.sh")
     else:
         ok("Stage order", f"{len(present)} stage output(s), each newer than its input")
 
@@ -223,7 +255,7 @@ def check_scoring():
     if total == 0:
         return
     if not dm:
-        fail("Drive routing", f"{total} candidate(s) but no candidate_drive.json",
+        pending("Drive routing", f"{total} candidate(s) but no candidate_drive.json",
              ".venv/bin/python scripts/drive_matrix.py"
              "   # without it every candidate scores 0 on the 35-point drive weight")
         return
@@ -248,7 +280,7 @@ def check_scoring():
 def check_centroids():
     c = read(DATA / "centroids.json")
     if not c:
-        fail("Centroids", "centroids.json missing", ".venv/bin/python scripts/centroid.py")
+        pending("Centroids", "centroids.json missing", ".venv/bin/python scripts/centroid.py")
         return
     methods = list((c.get("centroids") or {}).keys())
     if c.get("drive_stats_source") != "osrm":
@@ -272,10 +304,13 @@ def check_examples():
 def check_seed():
     seed = ROOT / "worker" / "seed.sql"
     if not seed.exists():
-        fail("D1 seed", "worker/seed.sql missing",
-             ".venv/bin/python scripts/seed_d1.py > worker/seed.sql")
+        pending("D1 seed", "worker/seed.sql missing",
+                ".venv/bin/python scripts/seed_d1.py > worker/seed.sql")
         return
     newest = max((p.stat().st_mtime for p in DATA.glob("*.json")), default=0)
+    if newest == 0:
+        pending("D1 seed", "no pipeline output to compare the seed against", "")
+        return
     if seed.stat().st_mtime < newest:
         fail("D1 seed", f"older than data/, so the dashboard is showing the previous run",
              ".venv/bin/python scripts/seed_d1.py > worker/seed.sql"
@@ -319,10 +354,26 @@ def check_privacy():
 
 
 def main() -> int:
-    print("Christ's Chapel Site Finder — preflight\n")
-    for fn in (check_location, check_deps, check_inputs, check_network, check_radius,
-               check_order, check_centroids, check_scoring, check_examples,
-               check_seed, check_privacy):
+    global STAGE
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--stage", choices=("pre", "post", "all"), default="all",
+                    help="pre: can the pipeline run? post: did it produce good output?")
+    STAGE = ap.parse_args().stage
+
+    label = {"pre": " — before the run", "post": " — after the run", "all": ""}[STAGE]
+    print(f"Christ's Chapel Site Finder — preflight{label}\n")
+
+    checks = [check_location, check_deps, check_inputs, check_network, check_privacy]
+    if STAGE != "pre":
+        checks += [check_radius, check_order, check_centroids, check_scoring,
+                   check_examples, check_seed]
+    else:
+        # Still worth showing, so a first run knows what it is about to build.
+        checks += [check_radius, check_order, check_centroids, check_scoring,
+                   check_examples, check_seed]
+
+    for fn in checks:
         try:
             fn()
         except Exception as exc:
@@ -330,7 +381,7 @@ def main() -> int:
 
     width = max(len(t) for _, t, _, _ in RESULTS) + 2
     for level, title, detail, remedy in RESULTS:
-        mark = {"PASS": "  ok ", "WARN": " warn", "FAIL": " FAIL"}[level]
+        mark = {"PASS": "  ok ", "WARN": " warn", "FAIL": " FAIL", "....": " ... "}[level]
         print(f"{mark}  {title.ljust(width)}{detail}")
         if remedy:
             for line in remedy.splitlines():
@@ -338,9 +389,17 @@ def main() -> int:
 
     fails = sum(1 for l, *_ in RESULTS if l == "FAIL")
     warns = sum(1 for l, *_ in RESULTS if l == "WARN")
-    print(f"\n{len(RESULTS)} checks: {len(RESULTS)-fails-warns} ok, {warns} warn, {fails} FAIL")
+    todo = sum(1 for l, *_ in RESULTS if l == "....")
+    passes = len(RESULTS) - fails - warns - todo
+    parts = [f"{passes} ok", f"{warns} warn", f"{fails} FAIL"]
+    if todo:
+        parts.append(f"{todo} not run yet")
+    print(f"\n{len(RESULTS)} checks: " + ", ".join(parts))
+
     if fails:
         print("\nFix the FAILs before trusting any number in the dashboard.")
+    elif todo and STAGE == "pre":
+        print("\nReady to run. The items marked '...' are what the pipeline is about to produce.")
     elif warns:
         print("\nNothing is broken. The warnings are places the answer is weaker than it could be.")
     else:
