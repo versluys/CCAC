@@ -24,13 +24,18 @@ database_name = "ccac-sitefinder"
 # Replace with the id printed by:  npx wrangler d1 create ccac-sitefinder
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 
-# The parish's own subdomain. Uncomment and set once the DNS zone is on
-# Cloudflare; wrangler creates the record and the certificate. Until then the
-# Worker is reachable at cair-paravel.<account>.workers.dev, which is fine for
-# setting Access up but is not where the committee should be sent.
-# routes = [
-#   { pattern = "sitefinder.christschapelrec.org", custom_domain = true }
-# ]
+# The lamppost: the waypoint Lucy steers by, rather than Cair Paravel, which is
+# the destination this tool only helps look for. wrangler creates the DNS record
+# and the certificate on deploy, provided versluys.us is a zone on this
+# Cloudflare account.
+#
+# Until the first deploy the Worker also answers on
+# cair-paravel.<account>.workers.dev. That is fine for setting Access up, but
+# the Access application must name whichever hostname the committee actually
+# visits, and the AUD tag belongs to the application, not the Worker.
+routes = [
+  { pattern = "lamppost.versluys.us", custom_domain = true }
+]
 
 [vars]
 # Not secrets: these are public identifiers for the Access application, and the

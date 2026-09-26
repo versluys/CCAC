@@ -393,10 +393,21 @@ refused on the audience check.
 
 ### The custom domain
 
-Uncomment `routes` in `worker/wrangler.toml` and set the hostname. The DNS zone
-must be on Cloudflare; wrangler then creates the record and the certificate.
-Until then the Worker answers on `cair-paravel.<account>.workers.dev`, which is
-fine for setting Access up but is not where the committee should be sent.
+The Worker serves at **`lamppost.versluys.us`**, set in `routes` in
+`worker/wrangler.toml`. `versluys.us` must be a zone on the same Cloudflare
+account; wrangler then creates the DNS record and the certificate on deploy.
+
+The Worker also answers on `cair-paravel.<account>.workers.dev`. That is useful
+while setting Access up, but the Access application must name whichever hostname
+the committee actually visits, and its AUD tag belongs to the application rather
+than the Worker — so changing the hostname later means a new Access application
+and a new AUD in `wrangler.toml`, not just a DNS edit.
+
+One consequence worth stating plainly: this is a personal domain hosting a
+parish record. If it lapses or changes hands, the committee loses the tool and
+the research in it. Moving to a parish-owned domain later is a new Access
+application and a redeploy, which is an afternoon rather than a rebuild — but it
+is easier done before there is a year of notes behind it.
 
 ### Why deploying matters sooner rather than later
 
