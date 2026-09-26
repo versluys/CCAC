@@ -64,7 +64,9 @@ export default function App() {
   const [addSeed, setAddSeed] = useState<{ lat: number; lon: number } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [layers, setLayers] = useState<Layers>({
-    heatmap: true, households: true, centroids: true, ring: true, isochrones: false, candidates: true,
+    // Isochrones on by default: they are the answer to the question the map is
+    // asked most often, and a layer nobody switches on is a layer nobody sees.
+    heatmap: false, households: true, centroids: true, ring: true, isochrones: true, candidates: true,
   });
 
   const notify = useCallback((msg: string, bad = false) => {

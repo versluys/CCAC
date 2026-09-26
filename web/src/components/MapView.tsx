@@ -70,11 +70,17 @@ const PROXY_MPH = 27;
 export const DRIVE_COLORS = ['#103d52', '#2b7f9f', '#74bdd3', '#cbe8f2'] as const;
 export const DRIVE_OVER_COLOR = '#a84d4d';
 
+// The bands are nested: the 60-minute polygon contains the 45, which contains
+// the 30, and so on. They are therefore drawn largest first and allowed to
+// stack, so the alpha compounds toward the centre and the innermost band reads
+// as the deepest. Drawn the other way round — which is source order, since the
+// pipeline writes them ascending — the palest band paints over every darker one
+// and the map shows nothing but outlines.
 const ISO_BANDS: { minutes: number; color: string; opacity: number }[] = [
-  { minutes: 15, color: DRIVE_COLORS[0], opacity: 0.30 },
-  { minutes: 30, color: DRIVE_COLORS[1], opacity: 0.22 },
-  { minutes: 45, color: DRIVE_COLORS[2], opacity: 0.16 },
-  { minutes: 60, color: DRIVE_COLORS[3], opacity: 0.12 },
+  { minutes: 15, color: DRIVE_COLORS[0], opacity: 0.42 },
+  { minutes: 30, color: DRIVE_COLORS[1], opacity: 0.34 },
+  { minutes: 45, color: DRIVE_COLORS[2], opacity: 0.28 },
+  { minutes: 60, color: DRIVE_COLORS[3], opacity: 0.24 },
 ];
 
 export default function MapView(props: Props) {
@@ -237,6 +243,8 @@ export default function MapView(props: Props) {
       },
     });
 
+    // Added after the isochrone fills so the congregation stays readable on top
+    // of the shading rather than under it.
     add({
       id: 'hh-points', type: 'circle', source: 'households',
       paint: {
@@ -277,17 +285,27 @@ export default function MapView(props: Props) {
 
     add({
       id: 'iso-fill', type: 'fill', source: 'isochrones',
+      layout: {
+        // Negated, because a lower sort key draws first: the 60-minute band
+        // gets the lowest key and therefore goes down before the 15.
+        'fill-sort-key': ['*', -1, ['get', 'minutes']] as unknown as maplibregl.DataDrivenPropertyValueSpecification<number>,
+      },
       paint: {
         'fill-color': isoMatchColor as unknown as maplibregl.ExpressionSpecification,
         'fill-opacity': isoMatchOpacity as unknown as maplibregl.ExpressionSpecification,
+        'fill-antialias': true,
       },
     });
     add({
       id: 'iso-outline', type: 'line', source: 'isochrones',
+      layout: {
+        'line-sort-key': ['*', -1, ['get', 'minutes']] as unknown as maplibregl.DataDrivenPropertyValueSpecification<number>,
+        'line-join': 'round',
+      },
       paint: {
         'line-color': isoMatchColor as unknown as maplibregl.ExpressionSpecification,
-        'line-width': 1.2,
-        'line-opacity': 0.75,
+        'line-width': 1.4,
+        'line-opacity': 0.9,
         // Dashes signal an estimate; routed isochrones are drawn solid.
         ...(props.isochrones.length ? {} : { 'line-dasharray': [3, 3] as [number, number] }),
       },
