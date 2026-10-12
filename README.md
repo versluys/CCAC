@@ -173,7 +173,7 @@ half-answer.
 .venv/bin/python scripts/drive_matrix.py
 
 # 5. Optional: reachable-area bands, 15/30/45/60 min, one set per candidate.
-export CCAC_ORS_KEY=...                                      # free, openrouteservice.org
+.venv/bin/python scripts/isochrones.py --save-key ...        # free, openrouteservice.org; once
 .venv/bin/python scripts/isochrones.py --all-candidates
 .venv/bin/python scripts/isochrones.py --candidate "Grace"   # just one church
 
@@ -271,12 +271,19 @@ free, and it returns true isochrone polygons, shapes that follow the streets and
 run up the canyons, in one request per church.
 
 ```bash
-export CCAC_ORS_KEY=your-key-here
+.venv/bin/python scripts/isochrones.py --save-key your-key-here   # once, ever
 .venv/bin/python scripts/isochrones.py --all-candidates
 ```
 
-Keep it in the shell, not in the repository: it is a credential, and the key page
-shows it masked for a reason. Nothing here writes it to disk.
+`--save-key` writes it to `private/ors_key`, mode 600. `private/` is gitignored,
+so it cannot reach the repository, and the key survives closing the terminal.
+`CCAC_ORS_KEY` in the environment still wins if it is set.
+
+Save it rather than exporting it, because the failure mode of forgetting is not
+an error. A new terminal with no key does not stop: it falls back to sampling a
+grid through OSRM, which is hundreds of requests per church and about 45 minutes
+instead of one. `scripts/preflight.py` now says which of the two a run would
+use, before it starts.
 
 The free tier allows **20 isochrone requests a minute and 500 a day**, so the
 script paces itself at one every 3.2 seconds. Fifteen churches plus the centre

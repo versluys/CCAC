@@ -117,6 +117,17 @@ say "5/6  Drive times for every candidate"
 
 if [[ $WITH_ISOCHRONES -eq 1 ]]; then
   say "5a/6  Isochrone polygons"
+  # Without a key this step does not fail, it just takes three quarters of an
+  # hour instead of one minute. Say so before spending the time, not after.
+  if [[ -z "${CCAC_ORS_KEY:-}" && ! -s "$ROOT/private/ors_key" ]]; then
+    echo "  No openrouteservice key, so this samples a grid through OSRM:"
+    echo "  hundreds of requests per candidate, roughly 45 minutes."
+    echo "  To do it in one minute instead, stop now, get a free key at"
+    echo "  openrouteservice.org, and save it once:"
+    echo "    $PY scripts/isochrones.py --save-key YOUR-KEY"
+    echo "  Continuing with the grid in 10 seconds (Ctrl-C to stop)."
+    sleep 10
+  fi
   "$PY" scripts/isochrones.py --all-candidates || echo "isochrones failed; the map falls back to distance rings"
 fi
 

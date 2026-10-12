@@ -336,6 +336,44 @@ def traffic_factor(cli_value: float | None = None) -> float:
         return DEFAULT_TRAFFIC_FACTOR
 
 
+ORS_KEY_FILE = PRIVATE / "ors_key"
+
+
+def ors_key() -> tuple[str | None, str]:
+    """The openrouteservice key, from the environment or private/ors_key.
+
+    The environment alone was a trap. A forgotten ``export`` in a new terminal
+    does not fail: the pipeline silently falls back to the sampled grid, which
+    is hundreds of routing requests per candidate and three quarters of an hour
+    instead of one minute. A key written to a file survives the terminal, and
+    private/ is gitignored, so it cannot be committed by accident.
+
+    Returns the key and where it came from, so callers can say which.
+    """
+    raw = os.environ.get("CCAC_ORS_KEY", "").strip()
+    if raw:
+        return raw, "CCAC_ORS_KEY"
+    try:
+        raw = ORS_KEY_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None, "none"
+    # Tolerate a key pasted with quotes, or a KEY=value line.
+    if "=" in raw.split("\n", 1)[0] and raw.split("=", 1)[0].isupper():
+        raw = raw.split("=", 1)[1]
+    raw = raw.strip().strip("'").strip('"').strip()
+    return (raw or None), ("private/ors_key" if raw else "none")
+
+
+def save_ors_key(key: str) -> pathlib.Path:
+    """Write the key where the next run will find it, readable only by us."""
+    ORS_KEY_FILE.write_text(key.strip() + "\n", encoding="utf-8")
+    try:
+        ORS_KEY_FILE.chmod(0o600)
+    except OSError:
+        pass
+    return ORS_KEY_FILE
+
+
 def describe_traffic(factor: float) -> str:
     if abs(factor - 1.0) < 1e-9:
         return "routed times as the router gave them (free-flow, no traffic model)"

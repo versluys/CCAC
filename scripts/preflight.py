@@ -194,6 +194,28 @@ def check_network():
                  "the service is up but unwell; try again shortly")
 
 
+def check_ors_key():
+    """A missing isochrone key does not fail — it quietly costs 45 minutes.
+
+    Without a key, isochrones.py falls back to sampling a grid through OSRM:
+    hundreds of requests per candidate instead of one. It works, and the
+    difference between one minute and three quarters of an hour is invisible
+    until the run is already underway. So say so beforehand.
+    """
+    import os
+    key_file = ROOT / "private" / "ors_key"
+    if os.environ.get("CCAC_ORS_KEY", "").strip():
+        ok("Isochrone key", "CCAC_ORS_KEY is set — true polygons, one request per candidate")
+        return
+    if key_file.exists() and key_file.read_text().strip():
+        ok("Isochrone key", "private/ors_key — true polygons, one request per candidate")
+        return
+    warn("Isochrone key", "none found, so --isochrones would sample a grid through OSRM "
+                          "(hundreds of requests per candidate, roughly 45 minutes)",
+         "get a free key at openrouteservice.org, then save it once:\n"
+         "  .venv/bin/python scripts/isochrones.py --save-key YOUR-KEY")
+
+
 def check_radius():
     """A cached Overpass response from a different radius is silently wrong."""
     try:
@@ -396,6 +418,8 @@ def main() -> int:
 
     # Blockers: things the pipeline cannot fix by running.
     blocking = [check_location, check_deps, check_inputs, check_network, check_privacy]
+    # Not a blocker: the run works without a key, just far more slowly.
+    blocking.append(check_ors_key)
     # Output: things the pipeline produces, so before a run they are a status
     # report rather than a verdict.
     output = [check_radius, check_order, check_centroids, check_scoring,

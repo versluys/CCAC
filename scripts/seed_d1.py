@@ -49,6 +49,31 @@ def batched(seq, n):
         yield seq[i : i + n]
 
 
+def batched_bytes(rows, max_bytes: int, label: str = "row"):
+    """Chunk by payload size rather than count.
+
+    Counting rows is fine when rows are a fixed shape. Isochrone geometry is
+    not: an openrouteservice polygon is about a kilobyte, while a grid-method
+    polygon of the same band can be tens of kilobytes. Twenty of the first is
+    a 25 KB statement; twenty of the second blew past D1's statement limit and
+    failed the whole seed. So measure.
+    """
+    current: list[str] = []
+    size = 0
+    for row in rows:
+        n = len(row) + 4  # ",\n  " between rows
+        if current and size + n > max_bytes:
+            yield current
+            current, size = [], 0
+        if not current and n > max_bytes:
+            print(f"  note: one {label} is {n // 1000} KB on its own; "
+                  f"sending it as a single-row statement")
+        current.append(row)
+        size += n
+    if current:
+        yield current
+
+
 def q(v) -> str:
     """SQL literal. Everything here is our own generated data, but quote anyway."""
     if v is None:
@@ -71,6 +96,10 @@ MAX_FILE_BYTES = 150_000
 # Rows per statement. Kept modest for the same reason: a 50 KB statement is
 # legal but leaves no headroom when a church has a long name and address.
 ROWS_PER_STATEMENT = 100
+
+# Bytes per statement, for rows whose size varies wildly (isochrone geometry).
+# Half the file cap, so a statement never on its own overflows a file.
+MAX_STATEMENT_BYTES = 70_000
 
 
 def pack(statements: list[str]) -> list[list[str]]:
@@ -155,7 +184,7 @@ def main() -> int:
                 props.get("cells"), iso.get("grid_spacing_km"),
                 iso.get("source"), iso.get("caveat"), now,
             )) + ")")
-    for chunk in batched(iso_rows, 20):
+    for chunk in batched_bytes(iso_rows, MAX_STATEMENT_BYTES, "isochrone band"):
         lines.append(
             "INSERT INTO isochrones (subject, minutes, center_lat, center_lon, method, geojson, "
             "cells, grid_spacing_km, source, caveat, generated_at) VALUES\n  "

@@ -14,16 +14,6 @@ compatibility_flags = ["nodejs_compat"]
 
 # The built React app. One Worker serves the UI and the API so that a single
 # Cloudflare Access application covers both (PRD §6).
-[assets]
-directory = "../web/dist"
-binding = "ASSETS"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "ccac-sitefinder"
-# Replace with the id printed by:  npx wrangler d1 create ccac-sitefinder
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
-
 # The lamppost: the waypoint Lucy steers by, rather than Cair Paravel, which is
 # the destination this tool only helps look for. wrangler creates the DNS record
 # and the certificate on deploy, provided versluys.us is a zone on this
@@ -36,6 +26,16 @@ database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 routes = [
   { pattern = "lamppost.versluys.us", custom_domain = true }
 ]
+
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ccac-sitefinder"
+# Replace with the id printed by:  npx wrangler d1 create ccac-sitefinder
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 
 [vars]
 # Not secrets: these are public identifiers for the Access application, and the

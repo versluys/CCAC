@@ -41,7 +41,8 @@ import time
 import requests
 
 from common import (
-    CACHE, DATA, USER_AGENT, RateLimiter, describe_traffic, read_json, traffic_factor, write_json,
+    CACHE, DATA, ORS_KEY_FILE, USER_AGENT, RateLimiter, describe_traffic, ors_key as load_ors_key,
+    read_json, save_ors_key, traffic_factor, write_json,
 )
 
 OSRM_BASE = "https://router.project-osrm.org"
@@ -265,8 +266,21 @@ def main() -> int:
     ap.add_argument("--traffic-factor", type=float, default=None,
                     help="multiply drive times (1.0 = as routed)")
     ap.add_argument("--no-ors", action="store_true",
-                    help="ignore CCAC_ORS_KEY and use the sampled grid instead")
+                    help="ignore any saved key and use the sampled grid instead")
+    ap.add_argument("--save-key", metavar="KEY", default=None,
+                    help="write an openrouteservice key to private/ors_key, so it "
+                         "survives this terminal, and exit")
     args = ap.parse_args()
+
+    if args.save_key:
+        path = save_ors_key(args.save_key)
+        # Never echo the key itself: this output ends up pasted into chats and
+        # issue threads.
+        print(f"Saved an openrouteservice key to {path.relative_to(path.parent.parent)} "
+              f"({len(args.save_key.strip())} characters).")
+        print("private/ is gitignored, so it will not be committed. Future runs will")
+        print("find it without an export, in this terminal or any other.")
+        return 0
 
     cent = read_json(DATA / "centroids.json")
     if args.candidate:
@@ -313,7 +327,7 @@ def main() -> int:
         print("! no bands requested", file=sys.stderr)
         return 2
 
-    ors_key = None if args.no_ors else os.environ.get("CCAC_ORS_KEY", "").strip() or None
+    ors_key, key_from = (None, "none") if args.no_ors else load_ors_key()
     tf = traffic_factor(args.traffic_factor)
     print(f"Traffic: {describe_traffic(tf)}")
 
@@ -341,7 +355,8 @@ def main() -> int:
           f"{' (the centre only; --all-candidates for every candidate)' if not args.all_candidates else ''}")
     if ors_key:
         mins = len(subjects) * ORS_MIN_INTERVAL_S / 60
-        print("Method: openrouteservice — true isochrone polygons, one request per subject.")
+        print(f"Method: openrouteservice (key from {key_from}) — true isochrone polygons, "
+              f"one request per subject.")
         print(f"{len(subjects)} request(s), paced at one per {ORS_MIN_INTERVAL_S:g}s to stay "
               f"under the free tier's 20 per minute. About {mins:.0f} minute(s).")
         if len(subjects) > ORS_DAILY_QUOTA:
@@ -354,8 +369,14 @@ def main() -> int:
         per = -(-len(probe) // CHUNK)
         print("Method: sampled grid through OSRM. Honest but blocky, and slow: a real")
         print("isochrone follows the streets, and a lattice at this spacing cannot.")
+        if args.no_ors:
+            print("  (--no-ors was passed, so a saved key would have been ignored anyway.)")
+        else:
+            print("  No key found in CCAC_ORS_KEY or private/ors_key.")
         print("  For the shape you actually want, get a free key at openrouteservice.org")
-        print("  and set CCAC_ORS_KEY. One request per subject instead of hundreds.")
+        print("  and save it once with:")
+        print("    .venv/bin/python scripts/isochrones.py --save-key YOUR-KEY")
+        print("  One request per subject instead of hundreds.")
         print(f"\n{len(probe)} grid points per subject at {args.spacing_km} km spacing, "
               f"in batches of {CHUNK}.")
         print(f"About {per * len(subjects)} OSRM request(s) in total, cached between runs.\n")
