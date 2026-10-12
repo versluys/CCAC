@@ -5,6 +5,7 @@
 #   scripts/deploy.sh --check     what is configured and what is missing
 #   scripts/deploy.sh --db        create and migrate the remote D1
 #   scripts/deploy.sh --seed      push the current pipeline output to the remote D1
+#   scripts/deploy.sh --ors-key   store the openrouteservice key as a Worker secret
 #   scripts/deploy.sh             build and deploy the Worker
 #
 # Deploying matters for more than convenience. Candidates, notes and contacts
@@ -64,6 +65,17 @@ check() {
   parts=$(ls seed/*.sql 2>/dev/null | wc -l | tr -d ' ')
   echo "  ok   $parts seed part(s) ready"
 
+  # Not fatal. Without it the tool still works; it just cannot draw the
+  # reachable area around a church somebody adds in the browser, because that
+  # church exists only in the database and the offline script cannot see it.
+  if npx wrangler secret list 2>/dev/null | grep -q CCAC_ORS_KEY; then
+    echo "  ok   CCAC_ORS_KEY is set, so isochrones can be computed from the tool"
+  else
+    echo "  warn CCAC_ORS_KEY is not set. A church added in the browser will show the"
+    echo "       centre's bands instead of its own. To fix:"
+    echo "         cd worker && npx wrangler secret put CCAC_ORS_KEY"
+  fi
+
   say "Cloudflare Access, once the Worker is deployed"
   cat <<'ACCESS'
   1. Zero Trust > Settings > Authentication > Login methods: add Google Workspace.
@@ -86,6 +98,17 @@ ACCESS
 
 case "${1-}" in
   --check) check; exit $? ;;
+  --ors-key)
+    # Prompted, not an argument: a key on the command line lands in shell
+    # history, and this one is a credential.
+    say "Storing the openrouteservice key as a Worker secret"
+    echo "Paste the Basic Key from openrouteservice.org (API Key tab). It begins \"ey\"."
+    npx wrangler secret put CCAC_ORS_KEY
+    echo
+    echo "Stored. Redeploy is not needed; secrets take effect immediately."
+    echo "Every signed-in committee member can now spend from the free quota:"
+    echo "20 isochrone requests a minute, 500 a day. One church is one request."
+    ;;
   --db)
     check >/dev/null || die "configuration is incomplete; run --check"
     say "Creating the database (skip the error if it already exists)"
@@ -105,7 +128,9 @@ case "${1-}" in
     done
     echo "Seeded. Hand-entered candidates and notes already in the remote database were not touched."
     ;;
-  -h|--help) sed -n '3,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  # $ROOT, not BASH_SOURCE: this script cds into worker/, so a relative
+  # invocation path no longer resolves by the time --help reads it.
+  -h|--help) sed -n '3,15p' "$ROOT/scripts/deploy.sh" | sed 's/^# \{0,1\}//' ;;
   "")
     check || die "configuration is incomplete; run --check"
     say "Building the dashboard"

@@ -295,6 +295,35 @@ the cells that came back under each threshold. That is honest but blocky, and it
 needs hundreds of requests per church to approach the same detail. It is a
 stand-in, not the real thing, and the output says which you are looking at.
 
+#### A church added in the browser
+
+The script reads `data/churches.json` and `data/examples.json`. A church somebody
+adds in the tool is in neither: it exists only in the database. So the script can
+never compute its bands, and before this was wired up the map quietly showed the
+*centre's* bands under that church's name.
+
+The deployed Worker computes them itself instead. Store the same key as a Worker
+secret, once:
+
+```bash
+scripts/deploy.sh --ors-key        # prompts, so the key stays out of shell history
+```
+
+Then open the church in the tool and press **Compute reachable area**. One
+openrouteservice request, four bands, written to the same `isochrones` table the
+pipeline seeds. Afterwards a computed set and a seeded one are indistinguishable.
+
+Two things worth knowing before you set the secret. Every committee member who
+can sign in can spend from the free quota, which is 500 requests a day shared
+across all of them; one church is one request, so that is not a real constraint,
+but it is a shared one. And without the secret the button reports exactly that
+and does nothing, rather than drawing a circle and calling it a drive time.
+
+**"Recompute drive times" is a different button.** It routes every household
+*to* the building, which colours the dots and fills the histogram.
+**"Compute reachable area"** draws the bands *from* the building. Pressing one
+has never filled the other.
+
 ### Sunday-morning traffic
 
 There is a `--traffic-factor` on `drive_matrix.py` and `isochrones.py`, and a

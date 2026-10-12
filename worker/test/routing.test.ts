@@ -17,6 +17,7 @@ const routes: Route[] = [
   { method: 'GET', pattern: /^\/api\/candidates\/(?<id>[^/]+)$/, handler: noop },
   { method: 'GET', pattern: /^\/api\/candidates\/(?<id>[^/]+)\/drive$/, handler: noop },
   { method: 'POST', pattern: /^\/api\/candidates\/(?<id>[^/]+)\/notes$/, handler: noop },
+  { method: 'POST', pattern: /^\/api\/candidates\/(?<id>[^/]+)\/isochrones$/, handler: noop },
 ];
 
 /** What the browser actually puts on the wire for a given id. */
@@ -42,6 +43,16 @@ describe('path parameter decoding', () => {
     const hit = match(routes, 'GET', pathFor(id, '/drive'));
     expect(hit).not.toBeNull();
     expect(hit!.params.id).toBe(id);
+  });
+
+  it.each(realIds)('routes %s to the isochrone computation on POST', (id) => {
+    const hit = match(routes, 'POST', pathFor(id, '/isochrones'));
+    expect(hit).not.toBeNull();
+    expect(hit!.params.id).toBe(id);
+  });
+
+  it('does not answer the isochrone computation on GET', () => {
+    expect(match(routes, 'GET', pathFor('osm:way/480534530', '/isochrones'))).toBeNull();
   });
 
   it('routes an encoded id to notes on POST', () => {

@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, ApiError, type IsochroneSet } from '../api';
 import type { Candidate, Contact, Note, Status, Tenancy, Overlap, CapacityBand } from '../types';
 import { CAPACITY_LABEL, STATUS_COLOR, STATUS_LABEL, STATUS_ORDER } from '../types';
 
@@ -19,6 +19,9 @@ interface Props {
   onClose: () => void;
   onChanged: (c: Candidate) => void;
   notify: (msg: string, bad?: boolean) => void;
+  /** False when the map is showing the centre's bands in this church's place. */
+  hasOwnIsochrones: boolean;
+  onIsochrones: (iso: IsochroneSet) => void;
 }
 
 const NOTE_KINDS = ['note', 'call', 'email', 'visit', 'research'] as const;
@@ -39,7 +42,7 @@ function fmt(n: number | null | undefined, digits = 0, suffix = ''): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits }) + suffix;
 }
 
-export default function Drawer({ id, onClose, onChanged, notify }: Props) {
+export default function Drawer({ id, onClose, onChanged, notify, hasOwnIsochrones, onIsochrones }: Props) {
   const [data, setData] = useState<{ candidate: Candidate; notes: Note[]; contacts: Contact[] } | null>(null);
   const [saving, setSaving] = useState(false);
   const [noteText, setNoteText] = useState('');
@@ -54,6 +57,8 @@ export default function Drawer({ id, onClose, onChanged, notify }: Props) {
     computed_at: string;
   } | null>(null);
   const [driveBusy, setDriveBusy] = useState(false);
+  const [isoBusy, setIsoBusy] = useState(false);
+  const [isoNote, setIsoNote] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -85,6 +90,31 @@ export default function Drawer({ id, onClose, onChanged, notify }: Props) {
       notify((e as Error).message, true);
     } finally {
       setDriveBusy(false);
+    }
+  }
+
+  /**
+   * Isochrones are a separate computation from the drive table above, and the
+   * distinction matters: "Recompute" routes households to this building, which
+   * colours the dots. This draws the area reachable FROM the building, which is
+   * the shaded shape on the map. Pressing one never filled the other, and that
+   * was the confusion worth fixing.
+   */
+  async function computeIsochrones() {
+    setIsoBusy(true);
+    setIsoNote(null);
+    try {
+      onIsochrones(await api.computeIsochrones(id));
+      notify('Reachable area computed');
+    } catch (e) {
+      // A missing key or a spent daily quota is a standing condition, not a
+      // transient error, so it stays on the panel instead of in a toast that
+      // vanishes before it is read.
+      const msg = (e as Error).message;
+      if (e instanceof ApiError && (e.status === 501 || e.status === 429)) setIsoNote(msg);
+      notify(msg, true);
+    } finally {
+      setIsoBusy(false);
     }
   }
 
@@ -281,13 +311,45 @@ export default function Drawer({ id, onClose, onChanged, notify }: Props) {
                 <span className="tiny">Computed {new Date(drive.computed_at).toLocaleString()}</span>
                 <span className="spacer" />
                 <button onClick={recomputeDrive} disabled={driveBusy}
+                  title="Re-route every household to this building. Does not redraw the shaded area."
                   style={{ minHeight: 32, padding: '4px 10px' }}>
-                  Recompute
+                  Recompute drive times
                 </button>
               </div>
             </>
           ) : (
             <div className="tiny">Routing the congregation to this building…</div>
+          )}
+        </section>
+
+        <section>
+          <h3>
+            Reachable area{' '}
+            {hasOwnIsochrones
+              ? <span className="badge estimate">measured here</span>
+              : <span className="badge caution">not computed</span>}
+          </h3>
+          <div className="tiny">
+            {hasOwnIsochrones
+              ? 'The shaded bands on the map are the 15, 30, 45 and 60 minute drives out '
+                + 'from this building. Recompute them if the pin has moved.'
+              : 'The map is showing the bands around the congregation\'s centre, not around '
+                + 'this building, because this one has none of its own yet. Compute them to '
+                + 'see what a family could reach from here.'}
+          </div>
+          <div className="row" style={{ marginTop: 6 }}>
+            <button onClick={computeIsochrones} disabled={isoBusy}
+              className={hasOwnIsochrones ? undefined : 'primary'}
+              style={{ minHeight: 32, padding: '4px 10px' }}>
+              {isoBusy
+                ? 'Asking openrouteservice…'
+                : hasOwnIsochrones ? 'Recompute reachable area' : 'Compute reachable area'}
+            </button>
+          </div>
+          {isoNote && (
+            <div className="tiny" style={{ marginTop: 6 }}>
+              <strong>Not computed.</strong> {isoNote}
+            </div>
           )}
         </section>
 

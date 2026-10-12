@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, ApiError } from './api';
+import { api, ApiError, type IsochroneSet } from './api';
 import MapView, { DRIVE_COLORS, type Layers } from './components/MapView';
 import DriveHistogram from './components/DriveHistogram';
 import AddCandidate from './components/AddCandidate';
@@ -242,6 +242,18 @@ export default function App() {
     setCandidates((prev) => prev.map((p) => (p.id === c.id ? c : p)));
   }, []);
 
+  // Freshly computed bands go straight onto the map. Refetching would work
+  // too, but the reply already carries exactly what the GET would return, and
+  // a church's reachable area appearing a beat after the button is pressed is
+  // the behaviour that made the old Recompute button look broken.
+  const applyIsochrones = useCallback((iso: IsochroneSet) => {
+    setIsochrones(iso.features);
+    setIsoMeta({
+      source: iso.source, caveat: iso.caveat,
+      isFallback: iso.is_fallback, subject: iso.subject,
+    });
+  }, []);
+
   const setStatus = useCallback(async (ids: string[], status: Status) => {
     setBusy(true);
     const failures: string[] = [];
@@ -444,8 +456,8 @@ export default function App() {
                             : `Measured from ${selectedCandidate.name}.`}
                         </strong>{' '}
                         {isoMeta?.isFallback && selectedCandidate && (
-                          <>This church has no bands of its own yet — run{' '}
-                          <code>scripts/isochrones.py --all-candidates</code> and re-seed.{' '}</>
+                          <>This church has no bands of its own yet. Open it and press
+                          "Compute reachable area".{' '}</>
                         )}
                         {isoMeta?.caveat}
                       </div>
@@ -499,7 +511,9 @@ export default function App() {
             </div>
             {selected && (
               <Drawer id={selected} onClose={() => setSelected(null)}
-                onChanged={replaceCandidate} notify={notify} />
+                onChanged={replaceCandidate} notify={notify}
+                hasOwnIsochrones={!!isoMeta && !isoMeta.isFallback && isoMeta.subject === selected}
+                onIsochrones={applyIsochrones} />
             )}
           </div>
         )}
@@ -510,7 +524,9 @@ export default function App() {
               onBulkStatus={setStatus} busy={busy} />
             {selected && (
               <Drawer id={selected} onClose={() => setSelected(null)}
-                onChanged={replaceCandidate} notify={notify} />
+                onChanged={replaceCandidate} notify={notify}
+                hasOwnIsochrones={!!isoMeta && !isoMeta.isFallback && isoMeta.subject === selected}
+                onIsochrones={applyIsochrones} />
             )}
           </div>
         )}
@@ -521,7 +537,9 @@ export default function App() {
               onMove={(id, s) => setStatus([id], s)} busy={busy} />
             {selected && (
               <Drawer id={selected} onClose={() => setSelected(null)}
-                onChanged={replaceCandidate} notify={notify} />
+                onChanged={replaceCandidate} notify={notify}
+                hasOwnIsochrones={!!isoMeta && !isoMeta.isFallback && isoMeta.subject === selected}
+                onIsochrones={applyIsochrones} />
             )}
           </div>
         )}

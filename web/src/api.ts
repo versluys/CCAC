@@ -8,6 +8,21 @@ import type {
   Attender, Candidate, Centroid, Contact, DataQuality, Growth, Household, Note, Weights,
 } from './types';
 
+/** The shape both isochrone calls return: the stored set, or a fresh one. */
+export interface IsochroneSet {
+  type: 'FeatureCollection';
+  features: GeoJSON.Feature[];
+  requested_subject: string;
+  subject: string | null;
+  /** True when these bands belong to the centre, not the church asked for. */
+  is_fallback: boolean;
+  center: { lat: number; lon: number; method: string } | null;
+  grid_spacing_km: number | null;
+  generated_at: string | null;
+  source: string | null;
+  caveat: string;
+}
+
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -47,18 +62,7 @@ export const api = {
 
   /** subject: a candidate id, or "center" for the chosen centroid. */
   isochrones: (subject = 'center') =>
-    call<{
-      type: 'FeatureCollection';
-      features: GeoJSON.Feature[];
-      requested_subject: string;
-      subject: string | null;
-      is_fallback: boolean;
-      center: { lat: number; lon: number; method: string } | null;
-      grid_spacing_km: number | null;
-      generated_at: string | null;
-      source: string | null;
-      caveat: string;
-    }>(`/api/isochrones?subject=${encodeURIComponent(subject)}`),
+    call<IsochroneSet>(`/api/isochrones?subject=${encodeURIComponent(subject)}`),
 
   dataQuality: () => call<DataQuality>('/api/data-quality'),
 
@@ -107,6 +111,16 @@ export const api = {
       bands_min: number[];
       note?: string;
     }>(`/api/candidates/${encodeURIComponent(id)}/drive${refresh ? '?refresh=1' : ''}`),
+
+  /**
+   * Compute isochrone bands for one candidate, now, and store them.
+   *
+   * The pipeline cannot do this for a church added in the browser: it reads
+   * JSON files on a laptop and this candidate exists only in the database.
+   * The reply is shaped like the GET, so the map can render it directly.
+   */
+  computeIsochrones: (id: string) =>
+    call<IsochroneSet>(`/api/candidates/${encodeURIComponent(id)}/isochrones`, { method: 'POST' }),
 
   addNote: (id: string, body: string, kind: string) =>
     call<{ note: Note }>(`/api/candidates/${encodeURIComponent(id)}/notes`, {

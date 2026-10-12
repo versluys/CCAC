@@ -2,6 +2,7 @@
 
 import { audit, driveShareWithin, getGrowth, getScreen, getWeights, haversineMi, PROXY_MPH } from '../db';
 import { error, json, readJson, type RouteContext } from '../http';
+import { orsIsochrones } from '../ors';
 import { DRIVE_BANDS, driveMinutesFrom, summarise } from '../osrm';
 import { growthProjection, scoreCandidate, seatsForProjection } from '../scoring';
 
@@ -479,3 +480,91 @@ export async function addContact({ env, request, params, identity }: RouteContex
 }
 
 export { STATUSES, CAPACITIES, TENANCIES };
+
+/**
+ * Isochrone bands around one candidate, computed on demand.
+ *
+ * The pipeline computes a set for every candidate it can see in its JSON
+ * files. A church added in the browser is not in those files, so without this
+ * the map fell back to the centre's bands and quietly showed one building's
+ * reach in another's name. Here the bands are computed for the building that
+ * is actually selected, and written to the same table the pipeline seeds, so
+ * the two are indistinguishable afterwards.
+ *
+ * Replaced wholesale per subject rather than merged: a half-updated set, some
+ * bands from a church's old coordinates and some from its corrected ones, is
+ * worse than no set at all.
+ */
+export async function candidateIsochrones(
+  { env, params, identity }: RouteContext,
+): Promise<Response> {
+  const db = env.DB;
+  const cand = await db
+    .prepare('SELECT id, name, lat, lon FROM candidates WHERE id = ?')
+    .bind(params.id)
+    .first<{ id: string; name: string; lat: number; lon: number }>();
+  if (!cand) return error('no such candidate', 404);
+  if (cand.lat == null || cand.lon == null) {
+    return error('this candidate has no coordinates, so there is nothing to measure from', 422);
+  }
+
+  const key = (env.CCAC_ORS_KEY ?? '').trim();
+  if (!key) {
+    return error(
+      'No openrouteservice key is configured, so isochrones cannot be computed from here. '
+      + 'Get a free key at openrouteservice.org and set it with: '
+      + 'wrangler secret put CCAC_ORS_KEY',
+      501,
+    );
+  }
+
+  const result = await orsIsochrones({ lat: cand.lat, lon: cand.lon }, key);
+  if (!result.ok) return error(result.message, result.status);
+
+  const now = new Date().toISOString();
+  const caveat =
+    'Free-flow driving times from openrouteservice, computed for this building on demand. '
+    + 'A Sunday morning is usually a little quicker.';
+
+  // One batch, so a failure part-way cannot leave a subject holding bands from
+  // two different computations.
+  await db.batch([
+    db.prepare('DELETE FROM isochrones WHERE subject = ?').bind(params.id),
+    ...result.bands.map((b) =>
+      db
+        .prepare(
+          'INSERT INTO isochrones (subject, minutes, center_lat, center_lon, method, geojson, '
+          + 'cells, grid_spacing_km, source, caveat, generated_at) '
+          + 'VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)',
+        )
+        .bind(
+          params.id, b.minutes, cand.lat, cand.lon, 'candidate',
+          JSON.stringify(b.geometry),
+          'openrouteservice isochrones, driving-car', caveat, now,
+        ),
+    ),
+  ]);
+
+  await audit(db, identity.email, 'isochrones', `candidate:${params.id}`, {
+    bands: result.bands.map((b) => b.minutes),
+  });
+
+  // Shaped exactly like GET /api/isochrones, so the map can render the reply
+  // without a second round trip.
+  return json({
+    type: 'FeatureCollection',
+    features: result.bands.map((b) => ({
+      type: 'Feature' as const,
+      properties: { minutes: b.minutes, cells: null },
+      geometry: b.geometry,
+    })),
+    requested_subject: params.id,
+    subject: params.id,
+    is_fallback: false,
+    center: { lat: cand.lat, lon: cand.lon, method: 'candidate' },
+    grid_spacing_km: null,
+    generated_at: now,
+    source: 'openrouteservice isochrones, driving-car',
+    caveat,
+  });
+}
