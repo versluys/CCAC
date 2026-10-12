@@ -221,7 +221,20 @@ function csvCell(v: unknown): string {
 /** Candidate export for vestry packets. Opens cleanly in Excel. */
 export async function exportCsv({ env, identity }: RouteContext): Promise<Response> {
   const [{ results }, weights, screen, growth] = await Promise.all([
-    env.DB.prepare('SELECT * FROM candidates').all<Record<string, unknown>>(),
+    // Joined, not a bare SELECT: the drive figures live in candidate_drive,
+    // and a plain `SELECT * FROM candidates` exported an empty column for the
+    // 20-minute share on every seeded row — the same mistake as the header KPI
+    // that read "43 of 43".
+    env.DB.prepare(`
+      SELECT c.*,
+             COALESCE(c.share_hh_within_20min, d.share_20min) AS share_hh_within_20min,
+             COALESCE(c.drive_min_from_center, d.median_min)  AS drive_min_from_center,
+             d.mean_min   AS mean_drive_min,
+             d.median_min AS median_drive_min,
+             d.source     AS drive_source
+      FROM candidates c
+      LEFT JOIN candidate_drive d ON d.candidate_id = c.id
+    `).all<Record<string, unknown>>(),
     getWeights(env.DB),
     getScreen(env.DB),
     getGrowth(env.DB),
@@ -240,7 +253,10 @@ export async function exportCsv({ env, identity }: RouteContext): Promise<Respon
     ['parking_spaces_est', 'Parking spaces (est)'],
     ['distance_mi_from_center', 'Miles from centre'],
     ['drive_min_from_center', 'Drive minutes from centre'],
+    ['mean_drive_min', 'Average drive minutes (all households)'],
+    ['median_drive_min', 'Median drive minutes (all households)'],
     ['share_hh_within_20min', 'Share of households within 20 min'],
+    ['drive_source', 'Drive times routed or estimated'],
     ['tenancy_possible', 'Tenancy possible'],
     ['lease_term_months', 'Lease term (months)'],
     ['renewal_option', 'Renewal option'],

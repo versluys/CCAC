@@ -135,7 +135,9 @@ export async function listCandidates({ env, url }: RouteContext): Promise<Respon
   const sql = `
     SELECT c.*,
            COALESCE(c.share_hh_within_20min, d.share_20min) AS share_hh_within_20min,
-           COALESCE(c.drive_min_from_center, d.median_min)  AS drive_min_from_center
+           COALESCE(c.drive_min_from_center, d.median_min)  AS drive_min_from_center,
+           d.mean_min   AS mean_drive_min,
+           d.median_min AS median_drive_min
     FROM candidates c
     LEFT JOIN candidate_drive d ON d.candidate_id = c.id
     ${where.length ? 'WHERE ' + where.map((w) => w.replace(/\b(status|capacity_est|drive_min_from_center|distance_mi_from_center)\b/g, 'c.$1')).join(' AND ') : ''}
@@ -156,7 +158,9 @@ export async function getCandidate({ env, params }: RouteContext): Promise<Respo
     .prepare(`
       SELECT c.*,
              COALESCE(c.share_hh_within_20min, d.share_20min) AS share_hh_within_20min,
-             COALESCE(c.drive_min_from_center, d.median_min)  AS drive_min_from_center
+             COALESCE(c.drive_min_from_center, d.median_min)  AS drive_min_from_center,
+             d.mean_min   AS mean_drive_min,
+             d.median_min AS median_drive_min
       FROM candidates c
       LEFT JOIN candidate_drive d ON d.candidate_id = c.id
       WHERE c.id = ?`)

@@ -178,7 +178,21 @@ export default function Drawer({ id, onClose, onChanged, notify }: Props) {
             <dt>Footprint</dt><dd>{fmt(c.footprint_ft2, 0, ' sq ft')}</dd>
             <dt>Parking</dt><dd>{fmt(c.parking_m2, 0, ' sq m')}{c.parking_spaces_est ? ` (~${c.parking_spaces_est} stalls)` : ''}</dd>
             <dt>Distance</dt><dd>{fmt(c.distance_mi_from_center, 1, ' mi from centre')}</dd>
-            <dt>Drive</dt><dd>{c.drive_min_from_center ? fmt(c.drive_min_from_center, 0, ' min') : 'not routed yet'}</dd>
+            <dt>From centre</dt>
+            <dd title="One trip, the congregation's centre point to this building.">
+              {c.drive_min_from_center ? fmt(c.drive_min_from_center, 0, ' min') : 'not routed yet'}
+            </dd>
+            <dt>Average drive</dt>
+            <dd>
+              {c.mean_drive_min != null ? (
+                <>
+                  {fmt(c.mean_drive_min, 0, ' min')}
+                  {c.median_drive_min != null && (
+                    <span className="tiny"> · median {Math.round(c.median_drive_min)} min</span>
+                  )}
+                </>
+              ) : 'not routed yet'}
+            </dd>
             <dt>Within 20 min</dt><dd>{c.share_hh_within_20min != null ? `${Math.round(c.share_hh_within_20min * 100)}% of households` : '—'}</dd>
             <dt>Source</dt><dd className="mono">{c.source}</dd>
           </dl>

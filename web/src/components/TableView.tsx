@@ -4,7 +4,8 @@ import { useMemo, useState } from 'react';
 import type { Candidate, CapacityBand, Status } from '../types';
 import { CAPACITY_LABEL, STATUS_COLOR, STATUS_LABEL, STATUS_ORDER } from '../types';
 
-type SortKey = 'name' | 'fit_score' | 'capacity_est' | 'distance_mi_from_center' | 'status' | 'capacity_confirmed';
+type SortKey = 'name' | 'fit_score' | 'capacity_est' | 'distance_mi_from_center' | 'status'
+  | 'capacity_confirmed' | 'mean_drive_min';
 
 interface Props {
   candidates: Candidate[];
@@ -46,6 +47,9 @@ export default function TableView({ candidates, onSelect, onBulkStatus, busy }: 
         case 'status': return STATUS_ORDER.indexOf(c.status);
         case 'capacity_confirmed': return c.capacity_confirmed ?? -1;
         case 'distance_mi_from_center': return c.distance_mi_from_center ?? Infinity;
+        // Unrouted sorts last either way: it is not a short drive, it is an
+        // unknown one.
+        case 'mean_drive_min': return c.mean_drive_min ?? Infinity;
         default: return c.fit_score;
       }
     };
@@ -147,6 +151,7 @@ export default function TableView({ candidates, onSelect, onBulkStatus, busy }: 
               {head('capacity_est', 'Capacity (est.)')}
               {head('capacity_confirmed', 'Seats', 'num')}
               {head('distance_mi_from_center', 'Miles', 'num')}
+              {head('mean_drive_min', 'Avg drive', 'num')}
               <th>Tenancy</th>
               <th className="num">Yrs to 80%</th>
             </tr>
@@ -178,6 +183,10 @@ export default function TableView({ candidates, onSelect, onBulkStatus, busy }: 
                 </td>
                 <td className="num" onClick={() => onSelect(c.id)}>{c.capacity_confirmed ?? '—'}</td>
                 <td className="num" onClick={() => onSelect(c.id)}>{c.distance_mi_from_center?.toFixed(1) ?? '—'}</td>
+                <td className="num" onClick={() => onSelect(c.id)}
+                    title={c.median_drive_min != null ? `median ${Math.round(c.median_drive_min)} min` : undefined}>
+                  {c.mean_drive_min != null ? `${Math.round(c.mean_drive_min)} min` : '—'}
+                </td>
                 <td onClick={() => onSelect(c.id)}>{c.tenancy_possible}</td>
                 <td className="num" onClick={() => onSelect(c.id)}>
                   {c.years_to_80pct_base ?? '—'}
@@ -198,6 +207,12 @@ export default function TableView({ candidates, onSelect, onBulkStatus, busy }: 
           Capacity columns marked "est." come from building footprint and parking, not a seat
           count. A building is only marked listed when somebody recorded evidence of it;
           discovery cannot know.
+        </div>
+        <div style={{ marginTop: 4 }}>
+          "Avg drive" is the mean one-way drive from that building to every placed household,
+          so a few families an hour and a half out raise it for everyone. Hover a figure for
+          the median, which is closer to what a typical family would drive. A dash means
+          nobody has routed that building yet — open it and press "Route drive times".
         </div>
       </div>
     </div>

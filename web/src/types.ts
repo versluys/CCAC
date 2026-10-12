@@ -30,6 +30,14 @@ export interface Candidate {
   capacity_confirmed: number | null;
   drive_min_from_center: number | null;
   distance_mi_from_center: number | null;
+  /**
+   * Average and median drive time from this building to every placed
+   * household, in minutes. Both, because they disagree and the disagreement
+   * is the point: a handful of households an hour and a half out pull the
+   * average well above what a typical family would drive.
+   */
+  mean_drive_min: number | null;
+  median_drive_min: number | null;
   share_hh_within_20min: number | null;
   tenancy_possible: Tenancy;
   lease_term_months: number | null;
